@@ -1,0 +1,98 @@
+# Pushing a tag v* builds the release archives on every platform and attaches them, with SHA256SUMS, to a DRAFT
+# GitHub Release of that tag. Review the draft on the Releases page, then publish it by hand.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # one universal binary (arm64 + x86_64, lipo) built on an Apple Silicon runner
+          - os: macos-latest
+            platform: macos-universal
+            targets: aarch64-apple-darwin x86_64-apple-darwin
+            toolchain_targets: ',aarch64-apple-darwin,x86_64-apple-darwin'
+          - os: windows-latest
+            platform: windows-x86_64
+            targets: x86_64-pc-windows-msvc
+            toolchain_targets: ',x86_64-pc-windows-msvc'
+          # the oldest supported Ubuntu runner: the binaries then run on systems with glibc >= its version
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+            targets: x86_64-unknown-linux-gnu
+            toolchain_targets: ',x86_64-unknown-linux-gnu'
+          - os: ubuntu-latest
+            platform: web
+            targets: ""
+            toolchain_targets: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown${{ matrix.toolchain_targets }}
+      - if: runner.os == 'Linux' && matrix.platform != 'web'
+        run: sudo sh .github/scripts/linux-deps.sh
+      - name: Package
+        shell: bash
+        run: bash .github/scripts/package.sh "$GITHUB_REF_NAME" "${{ matrix.platform }}" ${{ matrix.targets }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shiloh-${{ matrix.platform }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release notes
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 == "## " v {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          {
+            echo
+            echo "No game data is included: you need your own copy of The X-Files Game. See \"Downloads\" in the"
+            echo "README for how to run these builds. Built and played on macOS; the Linux and Windows builds are made"
+            echo "by CI and not yet play-tested. Checksums: SHA256SUMS."
+          } >> notes.md
+          cat notes.md
+      - name: SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum shiloh-* > SHA256SUMS
+          cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/shiloh-*
+            dist/SHA256SUMS
+          name: Shiloh ${{ github.ref_name }}
+          body_path: notes.md

@@ -1,0 +1,12 @@
+# Your own copy of the game: never in git
+/data
+
+# Build output
+target/
+port/web/www/pkg/
+/dist/
+
+# OS / editor cruft
+.DS_Store
+__pycache__/
+*.pyc

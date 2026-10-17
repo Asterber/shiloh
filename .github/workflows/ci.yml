@@ -1,0 +1,91 @@
+# Tests and builds on every push to main and every pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Tests (no SDL)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: port -> target
+      # tests that need the game data skip without it
+      - run: cargo test --release --no-default-features --locked
+        working-directory: port
+
+  system-sdl:
+    name: Build from source, system SDL2 (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: port -> target
+      - name: Install SDL2
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update -q && sudo apt-get install -y -q libsdl2-dev pkg-config
+          else
+            brew install sdl2 pkg-config
+          fi
+      - run: cargo build --release --locked
+        working-directory: port
+
+  package:
+    name: Release build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos-arm64
+            targets: aarch64-apple-darwin
+          - os: windows-latest
+            platform: windows-x86_64
+            targets: x86_64-pc-windows-msvc
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+            targets: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            platform: web
+            targets: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown${{ matrix.targets && format(',{0}', matrix.targets) || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.platform }}
+          workspaces: |
+            port -> target
+            port/web -> target
+      - if: runner.os == 'Linux' && matrix.platform != 'web'
+        run: sudo sh .github/scripts/linux-deps.sh
+      # the same script as the release, with the SDL2-bundled feature; the archive is not kept
+      - shell: bash
+        run: bash .github/scripts/package.sh ci "${{ matrix.platform }}" ${{ matrix.targets }}

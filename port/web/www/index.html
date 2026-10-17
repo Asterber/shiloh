@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Shiloh</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg: #000; --fg: #c9d1c9; --dim: #7a857a; --accent: #6fcf6f; --bar: #0d100d; --line: #1f261f; --err: #ff7a6a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow: hidden; }
+  body { display: flex; flex-direction: column; height: 100dvh; }
+  #stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; touch-action: none;
+    background: var(--bg); }
+  #screen { background: #000; display: block; image-rendering: pixelated; touch-action: none; }
+  #screen.smooth { image-rendering: auto; }
+  #start { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; background: radial-gradient(circle at center, #0c140c 0, #000 70%); cursor: pointer; border: 0; color: var(--fg);
+    font: inherit; width: 100%; padding: 16px; }
+  #start:disabled { cursor: progress; }
+  #start b { font-size: 22px; letter-spacing: .25em; color: var(--accent); }
+  #start .msg { color: var(--fg); max-width: 34em; text-align: center; }
+  #start .msg.err { color: var(--err); }
+  #start .hint { color: var(--dim); max-width: 34em; text-align: center; }
+  #start[hidden] { display: none; }
+  #progress { width: min(320px, 80%); height: 4px; background: var(--line); overflow: hidden; }
+  #progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s linear; }
+  #progress[hidden] { display: none; }
+  #paused { position: absolute; inset: auto 0 12px; text-align: center; color: var(--dim); pointer-events: none; }
+  #bar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; padding: 6px 12px; background: var(--bar);
+    border-top: 1px solid var(--line); color: var(--dim); }
+  #bar label { display: flex; gap: 6px; align-items: center; }
+  #bar a { color: var(--dim); }
+  #bar button, #bar select { background: #151a15; color: var(--fg); border: 1px solid var(--line); font: inherit; padding: 2px 8px; }
+  #volume { width: 140px; }
+  #status { margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #err { color: var(--err); }
+  #keys { position: absolute; right: 12px; bottom: 12px; max-width: calc(100% - 24px); max-height: calc(100% - 24px); overflow: auto;
+    background: rgba(13, 16, 13, .96); border: 1px solid var(--line); padding: 10px 14px; z-index: 2; touch-action: pan-y; }
+  #keys[hidden], #saves[hidden] { display: none; }
+  #saves { position: absolute; right: 12px; bottom: 12px; max-width: calc(100% - 24px); max-height: calc(100% - 24px); overflow: auto;
+    background: rgba(13, 16, 13, .96); border: 1px solid var(--line); padding: 10px 14px; z-index: 3; touch-action: pan-y; }
+  #saves h2 { margin: 0 0 6px; font-size: 13px; color: var(--accent); font-weight: normal; letter-spacing: .1em; }
+  #saves p { margin: 6px 0; color: var(--dim); max-width: 36em; }
+  #saves td { padding: 2px 12px 2px 0; }
+  #saves button { background: #151a15; color: var(--fg); border: 1px solid var(--line); font: inherit; padding: 2px 8px; }
+  #saves button:disabled { color: var(--dim); }
+  #savesmsg.err { color: var(--err); }
+  #keys h2 { margin: 0 0 6px; font-size: 13px; color: var(--accent); font-weight: normal; letter-spacing: .1em; }
+  #keys table { border-collapse: collapse; }
+  #keys td { padding: 1px 12px 1px 0; vertical-align: top; }
+  #keys td:first-child { color: var(--fg); white-space: nowrap; }
+  #keys td:last-child { color: var(--dim); }
+  #keys p { margin: 8px 0 0; color: var(--dim); max-width: 36em; }
+  /* the settings dialog (H1750-H1755: the same keys as xf::front::settings, one data-key each) */
+  #settings { position: absolute; inset: 0; margin: auto; width: min(560px, calc(100% - 24px)); height: fit-content;
+    max-height: calc(100% - 24px); overflow: auto; background: rgba(10, 14, 12, .97); border: 1px solid var(--line);
+    padding: 12px 16px; z-index: 3; touch-action: pan-y; }
+  #settings[hidden] { display: none; }
+  #settings h2 { margin: 0 0 8px; font-size: 13px; color: var(--accent); font-weight: normal; letter-spacing: .1em;
+    display: flex; align-items: center; }
+  #settings h2 button { margin-left: auto; }
+  #settings table { border-collapse: collapse; width: 100%; }
+  #settings td { padding: 3px 10px 3px 0; vertical-align: middle; }
+  #settings td:first-child { color: var(--fg); white-space: nowrap; }
+  #settings td.hint { color: var(--dim); text-align: right; white-space: nowrap; }
+  #settings .note { color: var(--dim); font-size: 12px; }
+  #settings button, #settings select { background: #151a15; color: var(--fg); border: 1px solid var(--line); font: inherit;
+    padding: 2px 8px; }
+  #settings select:disabled { color: #4a524a; }
+  #settings .preview { display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+  #settings .preview figure { margin: 0; }
+  #settings .preview figcaption { color: var(--dim); margin-bottom: 4px; }
+  #settings .preview figure.on figcaption { color: var(--accent); }
+  #settings .preview canvas { width: 240px; height: 150px; border: 1px solid var(--line); background: #000; display: block; }
+  #pv-near { image-rendering: pixelated; }
+  #pv-smooth { image-rendering: auto; }
+  /* full screen: only the picture */
+  #stage:fullscreen { background: #000; }
+  @media (max-width: 640px) {
+    #bar { gap: 4px 10px; padding: 4px 8px; }
+    #status { flex-basis: 100%; margin-left: 0; }
+    #volume { width: 80px; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="screen" width="640" height="480"></canvas>
+  <button id="start" type="button">
+    <b>THE X-FILES</b>
+    <span class="msg" id="startmsg">Click to start</span>
+    <span id="progress" hidden><i></i></span>
+    <span class="hint">Sound starts with this click. Uses your own copy of the game, served by xf-serve.
+      Keys: see the <u>keys</u> button below.</span>
+  </button>
+  <div id="paused" hidden>paused (tab hidden)</div>
+  <div id="saves" hidden role="dialog" aria-label="Saves">
+    <h2>SAVES</h2>
+    <p>Kept <span id="saveswhere">…</span>.</p>
+    <table><tbody id="slots"></tbody></table>
+    <p><button id="saveall" type="button">download all slots</button> <button id="loadall" type="button">upload all slots…</button>
+      <button id="savesclose" type="button">close</button></p>
+    <p>One slot = its <code>.x</code> file; all slots = a zip of <code>slots.txt</code> and the <code>.x</code> files (the
+      window's saves folder: unzip it there to continue in the window, or pick that folder's files here).</p>
+    <p id="savesmsg" role="status"></p>
+    <input id="slotfile" type="file" accept=".x" hidden>
+    <input id="allfiles" type="file" accept=".zip,.x,.txt" multiple hidden>
+  </div>
+  <div id="keys" hidden role="dialog" aria-label="Controls">
+    <h2>CONTROLS</h2>
+    <table>
+      <tr><td>left click</td><td>click / choose (ignored while a video plays); skips one intro movie</td></tr>
+      <tr><td>right click</td><td>right click; skips a playing video or one intro movie</td></tr>
+      <tr><td>touch</td><td>tap = click, long press = right click, press and move = drag</td></tr>
+      <tr><td>Space / Enter</td><td>end the playing video or sound</td></tr>
+      <tr><td>Esc</td><td>the game's menu (New, Save, Load, Quit); Esc again returns</td></tr>
+      <tr><td>F1</td><td>show the hotspots</td></tr>
+      <tr><td>F2</td><td>pixelated / smooth scaling</td></tr>
+      <tr><td>F3</td><td>captions on / off</td></tr>
+      <tr><td>F10</td><td>settings</td></tr>
+      <tr><td>Alt+Enter</td><td>full screen on / off</td></tr>
+      <tr><td>letters, digits</td><td>typing (save names, the FBI computer)</td></tr>
+      <tr><td colspan="2"><b>The original's Alt keys</b> (Option on a Mac)</td></tr>
+      <tr><td>Alt+0 … Alt+9</td><td>volume (0 = mute, 9 = full)</td></tr>
+      <tr><td>Alt+A / M / R / T / V</td><td>Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality Video on / off</td></tr>
+      <tr><td>Alt+C</td><td>captions on / off (as F3)</td></tr>
+      <tr><td>Alt+P</td><td>pause (any key or click resumes)</td></tr>
+      <tr><td>Alt+S</td><td>the save screen</td></tr>
+      <tr><td>Shift+Alt+F / H / I</td><td>frame rate / hotspots (as F1) / the state box (node, Asta, Loss, Paranoia, X-track)</td></tr>
+    </table>
+    <p>In full screen the browser may keep Esc for itself (hold Esc to leave full screen where the browser allows the
+      game to have it). Settings (F10, the <b>settings</b> button, or "Port settings" on the game's menu screen) are
+      remembered in this browser. The <b>saves</b> button downloads and uploads the save slots. Alt+X (exit) does
+      nothing here; some browsers keep a few Alt keys for themselves (e.g. Alt+digit switches tabs on Linux, Alt+F / Alt+E
+      open the browser menu on Windows).</p>
+  </div>
+  <div id="settings" hidden role="dialog" aria-label="Settings">
+    <h2>SETTINGS <button id="setclose" type="button">close</button></h2>
+    <table>
+      <tr><td>Scaling</td><td><select data-key="scale"><option value="nearest">pixelated</option><option value="linear">smooth</option></select></td><td class="hint">F2</td></tr>
+      <tr><td>Full screen</td><td><select data-key="fullscreen"><option value="off">off</option><option value="on">on</option></select></td><td class="hint">Alt+Enter</td></tr>
+      <tr><td>Volume</td><td><input data-key="volume" id="volume" type="range" min="0" max="100" value="100"> <span id="volpct">100 %</span></td><td class="hint">Alt+0…9</td></tr>
+      <tr><td>Subtitles</td><td><select data-key="captions"><option value="game">as the game</option><option value="on">on</option><option value="off">off</option></select> <span class="note" id="capnow"></span></td><td class="hint">F3, Alt+C</td></tr>
+      <tr><td>Subtitle language</td><td><select data-key="subs" title="Subtitle packs from xf-prep (cache dir subs-v1/): auto = Russian when ru.json is there, else English; not shown without a pack or with English game data (the movies' own English captions: Subtitles on / F3). Picking a language switches the captions on (F3 toggles)."><option value="auto">auto</option><option value="en">English</option><option value="ru">Русский</option><option value="off">off (the game's own)</option></select></td><td class="hint"></td></tr>
+      <tr><td>Game language</td><td><select data-key="game_lang"><option value="ru">Russian (RU 1.00)</option><option value="en">English (EN DVD)</option></select></td><td class="hint"></td></tr>
+      <tr title="Timers longer than 65 s (the Gordon's Hauling bomb). Wine: never fire, as the original under Wine / Windows 9x (no bomb game over). NT: fire, as on Windows NT (the bomb ends the game 120 s after the manifest)."><td>Long timers</td><td><select data-key="long_timers"><option value="wine">Wine / 9x</option><option value="nt">Windows NT</option></select></td><td class="hint"></td></tr>
+      <tr><td>Show hotspots</td><td><select data-key="overlay"><option value="off">off</option><option value="on">on</option></select></td><td class="hint">F1, Shift+Alt+H</td></tr>
+      <tr title="on: a hidden tab pauses the game (its clock, timers and sound stop; no CPU). off: the game runs on while the tab is hidden (nothing is drawn; the sound plays)."><td>Pause when hidden</td><td><select data-key="pause_hidden"><option value="on">on</option><option value="off">off</option></select></td><td class="hint"></td></tr>
+    </table>
+    <div class="preview">
+      <figure id="pv-near-f"><figcaption>pixelated</figcaption><canvas id="pv-near" width="80" height="50"></canvas></figure>
+      <figure id="pv-smooth-f"><figcaption>smooth</figcaption><canvas id="pv-smooth" width="80" height="50"></canvas></figure>
+    </div>
+    <p class="note">The preview is a crop of the current picture around the pointer, enlarged both ways. The game is paused
+      while this dialog is open. F10 / Esc: close.</p>
+  </div>
+</div>
+<div id="bar">
+  <button id="setbtn" type="button" aria-expanded="false">settings (F10)</button>
+  <button id="full" type="button">full screen</button>
+  <button id="keysbtn" type="button" aria-expanded="false">keys</button>
+  <button id="savesbtn" type="button" aria-expanded="false">saves</button>
+  <a id="licenses" href="LICENSES.txt" target="_blank" rel="noopener">licenses</a>
+  <span id="err"></span>
+  <span id="status">not started</span>
+</div>
+<script src="saves.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

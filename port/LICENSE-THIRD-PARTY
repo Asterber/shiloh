@@ -1,0 +1,140 @@
+Third-party notices
+
+The project's own code is licensed under the MIT License or the Apache License,
+Version 2.0, at your option (LICENSE-MIT, LICENSE-APACHE at the repository
+root). This file lists the third-party material that code is derived from or
+built on, with the notices those licenses require. The binaries print this file
+with `--licenses`; the web front serves it as /LICENSES.txt.
+
+No file of The X-Files Game (its program, data, video, audio, pictures or text)
+is part of this project or of anything built from it.
+
+================================================================================
+1. Zeffuro/x-files-pc-enhancement-patch (MIT)
+   https://github.com/Zeffuro/x-files-pc-enhancement-patch
+   (commit 60899d84cb22a85a84a0ecfb5177d84e81153cf1, 2026-10-11)
+================================================================================
+
+Derived files:
+
+- port/src/neodb.rs: the container checks (Db::validate), the 8-aligned append
+  (Db::alloc) and the class-index rebuild (Db::rebuild_index) are a Rust
+  rewrite of src/saves/database.h (namespace saves::database: Container,
+  allocate, rebuild_index).
+- port/src/save.rs: uses neodb.rs for its container logic, and its save-file
+  layout facts (the VCGameState record of 132 bytes with 5 blobs at +66, data
+  records of 14 bytes) were checked against src/saves/database.h and
+  src/saves/conversion.h.
+- The project's research notes (not part of the source tree) list function,
+  global and vtable addresses from src/game/profiles/builds.json and
+  src/game/profiles/functions.json.
+
+The source files carry no per-file header; the repository's LICENSE applies:
+
+MIT License
+
+Copyright (c) 2026 Zeffuro
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+2. AMD FidelityFX Super Resolution 1.0 (MIT)
+   https://github.com/GPUOpen-Effects/FidelityFX-FSR
+================================================================================
+
+Derived files: port/shaders/fsr_easu.frag and port/shaders/fsr_rcas.frag are
+GLSL ports of FsrEasuF and FsrRcasF from ffx_fsr1.h. They are compiled into the
+desktop binary (port/src/gpu/gl.rs). The same notice is in
+port/shaders/LICENSE-FSR.txt.
+
+Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+================================================================================
+3. Acknowledgements (no code copied)
+================================================================================
+
+- FFmpeg (https://ffmpeg.org). port/src/media/audio.rs decodes Apple IMA4
+  (the standard IMA ADPCM algorithm and its public step and index tables). One
+  behaviour of FFmpeg's adpcm_ima_qt decoder is reproduced so that the output
+  matches `ffmpeg -f s16le` sample for sample: the running predictor is kept
+  when a packet header repeats the step index and a predictor close to the
+  current one. No FFmpeg code is included, and FFmpeg is not linked or shipped:
+  xf-prep runs the user's own ffmpeg executable as a separate process.
+- MultimediaWiki (https://wiki.multimedia.cx) "Apple RPZA" and "Cinepak", and
+  T. Ferguson's "Cinepak (CVID) stream format": the format descriptions that
+  port/src/media/rpza2.rs and port/src/media/cinepak2.rs were written from.
+- mthcore/x-files-game (MIT): published research on the HDB (NeoPersist)
+  format. No code or headers from it are included.
+
+================================================================================
+4. Rust dependencies
+================================================================================
+
+The binaries statically link the crates listed in port/Cargo.lock (and
+port/web/Cargo.lock for the web build). At the time of writing their licenses
+are MIT, Apache-2.0, MIT OR Apache-2.0, Zlib, Unicode-3.0 or Unlicense
+variants; none is copyleft. Each crate's license text is in its source
+package. The release archives carry the full list with the license texts as
+THIRD-PARTY-CRATES.txt (generated by .github/scripts/package.sh).
+
+================================================================================
+5. SDL2 (Zlib)
+   https://www.libsdl.org
+================================================================================
+
+The desktop binary uses SDL2 through the sdl2 / sdl2-sys crates (MIT). A build
+from source links the system SDL2 library. The release archives are built with
+the `sdl-bundled` feature: they contain SDL2 2.26.4, compiled from the source
+shipped in the sdl2-sys crate and linked statically, unmodified.
+
+Copyright (C) 1997-2023 Sam Lantinga <slouken@libsdl.org>
+
+This software is provided 'as-is', without any express or implied
+warranty.  In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented; you must not
+   claim that you wrote the original software. If you use this software
+   in a product, an acknowledgment in the product documentation would be
+   appreciated but is not required.
+2. Altered source versions must be plainly marked as such, and must not be
+   misrepresented as being the original software.
+3. This notice may not be removed or altered from any source distribution.
