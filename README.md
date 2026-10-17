@@ -1,6 +1,8 @@
 # Shiloh
 
-<img width="720" height="546" alt="Shiloh running The X-Files Game in Firefox: the main menu, New Game and the opening scene" src="https://github.com/Asterber/shiloh/raw/assets/trailer.gif" />
+<p align="center">
+  <img width="720" height="546" alt="Shiloh running The X-Files Game in Firefox: the main menu, New Game and the opening scene" src="https://github.com/Asterber/shiloh/raw/assets/trailer.gif" />
+</p>
 
 Shiloh is an open-source engine that runs *The X-Files Game* (1998, PC, HyperBole Studios / Fox Interactive) on
 current systems, from the player's own copy of the game. It is written in Rust and has two front ends: a native
