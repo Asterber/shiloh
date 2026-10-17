@@ -1,5 +1,7 @@
 # Shiloh
 
+**English** | [Русский](README.ru.md)
+
 <p align="center">
   <img width="720" height="546" alt="Shiloh running The X-Files Game in Firefox: the main menu, New Game and the opening scene" src="https://github.com/Asterber/shiloh/raw/assets/trailer.gif" />
 </p>
