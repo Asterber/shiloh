@@ -1,6 +1,6 @@
 [package]
 name = "xf"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "X-Files Game (VirtualCinema) port: HDB reader + headless engine core built on trace-confirmed rules"
 license = "MIT OR Apache-2.0"

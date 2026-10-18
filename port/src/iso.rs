@@ -328,6 +328,11 @@ fn parse_record(r: &[u8], joliet: bool) -> Option<Rec> {
     let lba = le32(r, 2);
     let len = le32(r, 10) as u64;
     let flags = r[25];
+    // an associated file (flag bit 2: on Mac/PC hybrid discs the Macintosh resource fork, recorded under the same
+    // name just before the file itself, ECMA-119 9.1.6 / 9.3) is not the file's data
+    if flags & 4 != 0 {
+        return None;
+    }
     let nl = r[32] as usize;
     let id = r.get(33..33 + nl)?;
     let dot = nl == 1 && (id[0] == 0 || id[0] == 1);
@@ -650,6 +655,27 @@ mod tests {
         }
         let p = tmp("not", b"plain bytes");
         assert!(!is_image(&p) && Image::open(&p).is_err());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A Mac/PC hybrid disc (the German CD set, made with Toast) records each file twice under one name: first the
+    /// associated file (flag bit 2, the 286-byte resource fork), then the data. The data must win.
+    #[test]
+    fn associated_file_skipped() {
+        let fork = vec![0xAAu8; 286];
+        let data: Vec<u8> = (0..3000u32).map(|i| (i % 253) as u8).collect();
+        let fs: Vec<(&str, &[u8])> = vec![("NAV3.NMU", &fork), ("NAV3.NMV", &data)];
+        let mut raw = build::image("XF_TEST", &fs, false, 2048);
+        // turn the first record into an associated file of the same name as the second
+        let at = raw.windows(10).position(|w| w == b"NAV3.NMU;1").unwrap();
+        raw[at..at + 10].copy_from_slice(b"NAV3.NMV;1");
+        raw[at - 33 + 25] |= 4;
+        let p = tmp("assoc", &raw);
+        let img = Image::open(&p).unwrap();
+        let f = img.lookup(img.root(), Path::new("nav3.nmv")).unwrap();
+        assert_eq!(img.node(f).size, 3000);
+        assert_eq!(img.read(f).unwrap(), data);
+        assert_eq!(img.node(img.root()).children.len(), 1);
         let _ = std::fs::remove_file(&p);
     }
 

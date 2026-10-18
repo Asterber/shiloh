@@ -159,6 +159,35 @@ fn missing_database_is_reported() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// Discs not given (here 3..7 of the set): one warning names their navigation movie banks and the disc numbers.
+#[test]
+fn missing_discs_are_reported() {
+    let d = tmp("navs");
+    std::fs::write(d.join("cd1.iso"), disc1()).unwrap();
+    std::fs::write(d.join("cd2.iso"), disc2()).unwrap();
+    let ds = DataSet::open(&[d.join("cd1.iso"), d.join("cd2.iso")]).unwrap();
+    let p = ds.check();
+    let nav: Vec<&(bool, String)> = p.iter().filter(|x| x.1.contains("NMV")).collect();
+    assert_eq!(nav.len(), 1, "{p:?}");
+    assert!(!nav[0].0);
+    assert!(nav[0].1.starts_with("NAV3.NMV, NAV4.NMV, NAV5.NMV, NAV6.NMV, NAV7.NMV not found"), "{}", nav[0].1);
+    assert!(nav[0].1.contains("disc(s) 3, 4, 5, 6, 7"), "{}", nav[0].1);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Without disc 1 (movies only): the fatal message points at the first disc.
+#[test]
+fn missing_first_disc_is_reported() {
+    let d = tmp("nodisc1");
+    std::fs::write(d.join("cd2.iso"), disc2()).unwrap();
+    let ds = DataSet::open(&[d.join("cd2.iso")]).unwrap();
+    let p = ds.check();
+    let fatal: Vec<&String> = p.iter().filter(|x| x.0).map(|x| &x.1).collect();
+    assert_eq!(fatal.len(), 2, "{p:?}");
+    assert!(fatal[0].contains("XFiles.hdb") && fatal[0].contains("disc 1"), "{}", fatal[0]);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 /// Through the core's file access: mounted, the virtual folder works for `MediaLib` and `xf::io`; it is read-only;
 /// other paths still reach the real file system.
 #[test]

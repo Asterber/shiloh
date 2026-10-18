@@ -418,10 +418,30 @@ impl DataSet {
             let hint = if cab {
                 " — it is not on the discs as a plain file (only inside the installer's .CAB archive): install the game once \
                  and pass the installed folder first, e.g. --data INSTALLED --data CD1.iso …"
+            } else if !self.images.is_empty() {
+                " — on a CD set it is on the first disc (in MININST): give the image of disc 1 too"
             } else {
                 ""
             };
             out.push((fatal, format!("{f} ({what}) not found in the game data{hint}")));
+        }
+        // each CD of a set holds its own bank of navigation movies at its root (NAV1.NMV on disc 1 … NAV7.NMV on
+        // disc 7): one missing means that disc was not given, and the scenes filmed on it would stay black (checked
+        // only when discs are read; an installed folder is taken as it is)
+        let missing: Vec<u32> = (1..=7)
+            .filter(|n| !self.images.is_empty() && !self.is_file(Path::new(&format!("NAV{n}.NMV"))))
+            .collect();
+        if !missing.is_empty() {
+            let list = |f: &dyn Fn(u32) -> String| missing.iter().map(|&n| f(n)).collect::<Vec<_>>().join(", ");
+            out.push((
+                false,
+                format!(
+                    "{} not found: the movies of disc(s) {} are missing (those scenes stay black) — give every disc's \
+                     image, e.g. --data CD1.iso … --data CD7.iso",
+                    list(&|n| format!("NAV{n}.NMV")),
+                    list(&|n| n.to_string())
+                ),
+            ));
         }
         out
     }

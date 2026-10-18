@@ -2,6 +2,14 @@
 
 Each release has a section `## X.Y.Z`; `tools/release/release.sh` takes the release notes from it.
 
+## 0.2.1
+
+- Hybrid Mac/PC CDs no longer end in a black screen after the opening movie. Each file on such discs also has a Mac
+  copy under the same name, and Shiloh read that instead of the game's file. The German 7-CD release now reaches the
+  main menu and the opening; the computer searches, phone, cheats and e-mail replies of its program build don't work
+  yet.
+- When disc images are missing, Shiloh says which discs, and that disc 1 holds the game's database.
+
 ## 0.2.0
 
 Easier start: no command line needed.

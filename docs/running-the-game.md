@@ -75,7 +75,9 @@ and `xf-prep` (`--data`, `--en-subs IMAGE`) read them too.
 - **Images:** ISO 9660 with or without Joliet names; plain 2048-byte sectors (`.iso`, the Alcohol `.mdf` of the EN
   DVD) or raw 2352-byte CD sectors (`.bin` / `.img` / CD `.mdf`, Mode 1 or Mode 2 Form 1). UDF-only, Rock Ridge-only,
   compressed (`.cso`, `.nrg`, `.ccd`/`.sub` sets) and multi-session images are not read. The images are opened
-  read-only; files are read from them by offset when the game asks (nothing is extracted or copied).
+  read-only; files are read from them by offset when the game asks (nothing is extracted or copied). Mac/PC hybrid
+  discs (the German CD set, made with Toast) record most files twice under one name, the Macintosh resource fork
+  (an ISO 9660 "associated file") first: the port skips those records and reads the data.
 - **What is taken from where:** every source is searched for the folders that hold game files: `XFiles.hdb`,
   `XFiles.gam`, `NAV*.NMV`, `X7.PFF`, ... or the media folders `XV`, `XN`, `XS`, `XG`, `XT`. On a disc these are the
   disc root (movies) and the install folders the installer copies from (`MININST`, `MEDINST`). They are layered into
@@ -101,6 +103,12 @@ and `xf-prep` (`--data`, `--en-subs IMAGE`) read them too.
   the game once (or copy the files from an install) and pass that folder first, `--data INSTALLED --data CD1.iso ...`;
   the movies can still come from the images. The RU 1.00 CD set's layout was not checked against real images (none
   were at hand). Images of other platforms' versions (the PlayStation discs) are not this game's data.
+- **The German CD set** (7 CDs, volumes `XFILES1` … `XFILES7`): CD 1 holds the game's files as plain files in
+  `MININST` (`XFILES.HDB`, `XFILES.GAM`, `XFILES.EXE`, the DLLs, the `.TTR` fonts, `X.PFF`, `XT`, `XS`, `XG`) and
+  `MEDINST` (`NAVM.NMV`, part of `XV`); its `DATA1.CAB` (64 KB) holds only the installer's own files. Each CD has
+  its `NAVn.NMV` and movies at the root. Give all seven images (`--data CD1.iso … --data CD7.iso`); a missing disc is
+  named at start (its scenes stay black). Its `XFILES.EXE` (FileVersion 1.00.19) is a build whose tables the port does
+  not map yet, so the computer searches, phone, cheats and e-mail replies do nothing.
 - **The EN DVD Edition alone** (`--data XFILES1.mdf`): the game runs on the English data — its `XFILES.HDB` /
   `XFILES.GAM` and its program `XFILES.EXE`, a later build (FileVersion 2.05.00) than RU 1.00 whose tables the port
   reads at their own addresses (RE_NOTES H2300). English is then the only game language (no `--en-data`, F4 does
