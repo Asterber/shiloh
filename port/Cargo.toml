@@ -1,6 +1,6 @@
 [package]
 name = "xf"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "X-Files Game (VirtualCinema) port: HDB reader + headless engine core built on trace-confirmed rules"
 license = "MIT OR Apache-2.0"
@@ -12,7 +12,7 @@ path = "src/lib.rs"
 [features]
 default = ["sdl"]
 # SDL2 front-end (bin `xf`); `cargo test --no-default-features` builds without SDL
-sdl = ["dep:sdl2", "dep:gl"]
+sdl = ["dep:sdl2", "dep:gl", "dep:rfd"]
 # release builds (CI): compile the SDL2 source shipped in the sdl2-sys crate with cmake and link it statically, so the
 # binary needs no SDL2 library or pkg-config on the user's machine (SDL2 is Zlib-licensed, see LICENSE-THIRD-PARTY).
 # With CMake >= 4 set CMAKE_POLICY_VERSION_MINIMUM=3.5 (SDL 2.26's CMakeLists is older); .github/scripts/package.sh does.
@@ -23,8 +23,14 @@ serde_json = "1"
 jpeg-decoder = { version = "0.3", default-features = false }
 sdl2 = { version = "0.37", optional = true, features = ["use-pkgconfig"] }
 skrifa = "0.48.0"
+# canonical paths without Windows' `\\?\` verbatim prefix where that is safe (messages show plain paths)
+dunce = "1"
 # OpenGL 3.3 bindings for the window's upscaler (src/gpu/gl.rs: FSR 1.0 / linear / nearest)
 gl = { version = "=0.14.0", optional = true }
+# the window's "select your copy of the game" dialog (bin/xf.rs, when no game data is found): native file / folder
+# pickers. On Linux only the xdg-desktop-portal backend (libdbus opened with dlopen at run time, zenity as its
+# fallback): no GTK, no new build-time system libraries.
+rfd = { version = "0.17", optional = true, default-features = false, features = ["xdg-portal"] }
 
 [[bin]]
 name = "xf"

@@ -1,16 +1,25 @@
 # port — the Rust port
 
 `cargo run --release --bin xf -- --data DIR` opens the game window (SDL2); `port/web/README.md` describes the browser
-front (`xf-serve`). `DIR` is your installed copy of the game (`XFiles.hdb`, `XV/`, `XS/`, …; default `XF_DATA`, else
-`../data/InstalledGame`). `--data` may be repeated and may name your disc images (`.iso` / `.mdf` / `.bin` / `.img`)
+front (`xf-serve`). `DIR` is your installed copy of the game (`XFiles.hdb`, `XV/`, `XS/`, …). Without `--data` the
+programs look for it themselves: `XF_DATA`, bare path arguments (`xf CD.iso`, what a drop onto `xf.exe` does),
+`../data/InstalledGame`, the place remembered in the settings file, next to the executable; nothing found, the window
+asks with a file / folder dialog and remembers the choice
+([docs/running-the-game.md](../docs/running-the-game.md#where-the-game-data-is-found), `src/locate.rs`). `--data` may be repeated and may name your disc images (`.iso` / `.mdf` / `.bin` / `.img`)
 or a folder of them instead: [docs/running-the-game.md](../docs/running-the-game.md#running-from-disc-images).
+These images work directly, nothing to install first: the English DVD Edition (e.g. as an `.mdf` image; its game
+files are plain files on the disc) and the Russian edition as a single DVD `.iso` image, whose database, program and
+fonts exist only inside its `Setup.exe`: the port reads them out of the installer archive in memory
+(`src/gentee.rs`, `src/ppmd.rs`; no extraction, no cache). The same applies to `xf-serve` and `xf-prep`.
 
 **Settings:** F10 in the window (or "Port settings" under Quit on the game's menu screen) opens the port's settings
 screen over the paused game: scaling (with a pixelated / smooth preview of the current picture), window size, full
 screen, volume, subtitles, subtitle language, game language, long timers, hotspots, pause when minimised — mouse-driven,
 each with its hotkey (F1 / F2 / F3 / F11). They are kept in `~/Library/Application Support/xf-port/settings.txt`
 (macOS), `~/.config/xf-port/settings.txt` (Linux), `%APPDATA%\xf-port\settings.txt` (Windows), or `XF_CONFIG` /
-`--config FILE`; `--no-config` uses none. Command-line flags override the file for that run.
+`--config FILE`; `--no-config` uses none. Command-line flags override the file for that run. The file's `data = …`
+line is where the game data was last found (a dropped path, a copy next to the program, the dialog's choice; a path
+list); delete the line to be asked again. `--data` is never written there.
 
 ## Music in QDMC format (one-time step, needs ffmpeg)
 

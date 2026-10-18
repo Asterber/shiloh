@@ -5,6 +5,10 @@
 //!
 //!   xf [--data DIR] [--cache DIR] [--load SAVE.x] [--trace T.jsonl] [--overlay] [--quit-after MS] [--volume PCT]   interactive window
 //!                                                              (sound volume in percent, default 100)
+//!   xf [PATH ...]   a bare path = `--data PATH` (drag and drop onto the program). Without `--data` the game data is
+//!                   looked for (xf::locate): XF_DATA, bare paths, ../data/InstalledGame, the place remembered in the
+//!                   settings file, next to the program; nothing found → the window asks (a file / folder dialog,
+//!                   remembered once it loads). Errors of a double-click / drop start also show in a message box.
 //!   xf --frames N --dump DIR [--trace T.jsonl | --route fo-009] [--every MS]   (headless starts with New Game; `--intro`
 //!                                                              / `--skip-intro`: the cold start's intro / main menu, then `--steps`)
 //!   xf --frames N --dump DIR --hyp --load SAVE.x --steps "p:X,Y;m:X,Y;o:OWNER;k:VK;t:TEXT"
@@ -82,6 +86,10 @@ struct Args {
     data: PathBuf,
     /// `--data` as given (repeatable: installed folder, disc images, a folder of images; xf::vfs)
     data_src: Vec<PathBuf>,
+    /// bare path arguments (drag and drop onto the program): taken like `--data` (xf::locate)
+    paths: Vec<PathBuf>,
+    /// the settings file and the sources to remember there once the data has loaded (xf::locate::Origin::remember)
+    remember: Option<(PathBuf, Vec<PathBuf>)>,
     trace: Option<PathBuf>,
     /// sound volume, percent (`--volume PCT`, default 100)
     volume: f32,
@@ -149,6 +157,8 @@ fn args() -> Args {
     let mut a = Args {
         data: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../data/InstalledGame"),
         data_src: Vec::new(),
+        paths: Vec::new(),
+        remember: None,
         trace: None,
         volume: 100.0,
         av_delay: None,
@@ -279,21 +289,17 @@ fn args() -> Args {
                 std::process::exit(0);
             }
             "-h" | "--help" => {
-                eprintln!("usage: xf [--data DIR|IMAGE ...] [--cache DIR] [--trace T.jsonl] [--load SAVE.x] [--overlay] [--hyp] [--scale fsr|linear|nearest] [--sharpness STOPS] [--subtitles on|off|auto] [--subtitles-dir DIR] [--subs en|ru|off|auto] [--saves DIR] [--game-lang ru|en] [--en-data DIR|IMAGE ...] [--long-timers wine|nt] [--pause-when-minimised] [--intro | --skip-intro | --new-game] [--config FILE | --no-config] [--licenses]\n       xf --frames N --dump DIR [--load SAVE.x --steps S] [--intro | --skip-intro | --new-game] [--trace T.jsonl | --route fo-009] [--every MS] [--play ASSET] [--layout LAYOUT] [--port-ui] [--settings-screen]\n\nkeys: Esc menu, F1 hotspots, F2 scaling, F3 captions, F4 game language, F10 settings, F11 full screen, Space / Enter end the media\nAlt keys (the original's): Alt+0..9 volume (0 mute, 9 full), Alt+A / M / R / T / V Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality Video,\n  Alt+C captions, Alt+P pause (any key resumes), Alt+S save screen, Alt+X exit, Shift+Alt+F FPS, Shift+Alt+H hotspots, Shift+Alt+I state box");
+                eprintln!("usage: xf [--data DIR|IMAGE ...] [--cache DIR] [--trace T.jsonl] [--load SAVE.x] [--overlay] [--hyp] [--scale fsr|linear|nearest] [--sharpness STOPS] [--subtitles on|off|auto] [--subtitles-dir DIR] [--subs en|ru|off|auto] [--saves DIR] [--game-lang ru|en] [--en-data DIR|IMAGE ...] [--long-timers wine|nt] [--pause-when-minimised] [--intro | --skip-intro | --new-game] [--config FILE | --no-config] [--licenses] [PATH ...]\n       xf --frames N --dump DIR [--load SAVE.x --steps S] [--intro | --skip-intro | --new-game] [--trace T.jsonl | --route fo-009] [--every MS] [--play ASSET] [--layout LAYOUT] [--port-ui] [--settings-screen]\n\nkeys: Esc menu, F1 hotspots, F2 scaling, F3 captions, F4 game language, F10 settings, F11 full screen, Space / Enter end the media\nAlt keys (the original's): Alt+0..9 volume (0 mute, 9 full), Alt+A / M / R / T / V Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality Video,\n  Alt+C captions, Alt+P pause (any key resumes), Alt+S save screen, Alt+X exit, Shift+Alt+F FPS, Shift+Alt+H hotspots, Shift+Alt+I state box");
                 std::process::exit(0);
             }
+            // macOS adds -psn_... to programs started by the Finder
+            _ if x.starts_with("-psn_") => {}
+            // a bare path: drag and drop onto the program (Windows passes the dropped files' paths)
+            _ if !x.starts_with('-') => a.paths.push(x.into()),
             _ => die(&format!("unknown argument {x}")),
         }
     }
-    // the game data: `--data` (repeatable), else XF_DATA (a path list), else ../data/InstalledGame; disc images and
-    // several sources are merged into one virtual folder (xf::vfs)
-    if a.data_src.is_empty() {
-        a.data_src = xf::vfs::env_sources("XF_DATA");
-    }
-    if a.data_src.is_empty() {
-        a.data_src.push(a.data.clone());
-    }
-    a.data = xf::vfs::data_root_or_exit("xf", &a.data_src);
+    find_data(&mut a);
     // `--subs en|ru`: captions on unless --subtitles says otherwise
     if xf::media::subs::is_lang(&a.subs) && a.subtitles.is_none() {
         a.subtitles = Some(true);
@@ -313,7 +319,131 @@ fn subs_mode(v: &str) -> String {
 
 fn die(m: &str) -> ! {
     eprintln!("xf: {m}");
+    error_box(m);
     std::process::exit(2)
+}
+
+/// Started by a player (a double-click or a drop: no flags, or Windows made the console for us): errors also show
+/// in a message box — the console, if any, may close with the program.
+static PLAYER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn error_box(m: &str) {
+    if PLAYER.load(std::sync::atomic::Ordering::Relaxed) {
+        use sdl2::messagebox::{show_simple_message_box, MessageBoxFlag};
+        let _ = show_simple_message_box(MessageBoxFlag::ERROR, "Shiloh", m, None);
+    }
+}
+
+/// The game data (xf::locate): `--data`, XF_DATA, bare paths, the source tree's data/InstalledGame, the remembered
+/// place (window only), next to the program; nothing: the window asks ([`pick_data`]), headless stops.
+fn find_data(a: &mut Args) {
+    use xf::locate::{Origin, Search};
+    let headless = a.frames.is_some() || a.dump.is_some();
+    let all_paths = std::env::args().skip(1).all(|x| !x.starts_with('-') || x.starts_with("-psn_"));
+    if !headless && (all_paths || xf::locate::own_console()) {
+        PLAYER.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    // headless runs never read the settings file (H1750)
+    let cfg = if headless || a.no_config { None } else { a.config.clone().or_else(xf::front::settings::config_path) };
+    let search = Search {
+        flags: a.data_src.clone(),
+        env: xf::vfs::env_sources("XF_DATA"),
+        args: a.paths.clone(),
+        legacy: Some(a.data.clone()),
+        remembered: cfg.as_deref().map(xf::locate::remembered).unwrap_or_default(),
+        beside: xf::locate::beside_dirs(),
+    };
+    let mut log = |l: String| eprintln!("xf: {l}");
+    let (root, found) = match search.resolve(&mut log) {
+        Ok(x) => x,
+        // a drop of something that is not the game: say so, then ask
+        Err(Some((f, e))) if !headless && f.origin == Origin::Args => {
+            eprintln!("xf: {e}");
+            PLAYER.store(true, std::sync::atomic::Ordering::Relaxed);
+            error_box(&format!("{e}\n\nChoose your copy of the game in the next window."));
+            pick_data()
+        }
+        Err(Some((_, e))) => die(&e),
+        Err(None) if headless => die(&format!("{}\n(headless runs: --data DIR|IMAGE)", xf::locate::HELP)),
+        Err(None) => {
+            eprintln!("xf: no game data found; asking for it");
+            pick_data()
+        }
+    };
+    eprintln!("xf: game data {} ({}: {})", root.display(), found.origin.what(), found.why);
+    if found.origin.remember() {
+        a.remember = cfg.map(|c| (c, found.sources.clone()));
+    }
+    a.data_src = found.sources;
+    a.data = root;
+}
+
+/// The window's "select your copy of the game" dialog (no game data found): a disc image or a folder, until one
+/// holds the game or the player quits. SDL's video is started first (kept for the window, `EARLY_SDL`) so that on
+/// macOS the native dialogs run inside SDL's application.
+fn pick_data() -> (PathBuf, xf::locate::Found) {
+    use sdl2::messagebox::{show_message_box, ButtonData, ClickedButton, MessageBoxButtonFlag, MessageBoxFlag};
+    const TITLE: &str = "Select your copy of The X-Files Game: a disc image or the game folder";
+    EARLY_SDL.with(|e| {
+        if e.borrow().is_none() {
+            if let Ok(sdl) = sdl2::init() {
+                if let Ok(v) = sdl.video() {
+                    *e.borrow_mut() = Some((sdl, v));
+                }
+            }
+        }
+    });
+    let buttons = [
+        ButtonData { flags: MessageBoxButtonFlag::RETURNKEY_DEFAULT, button_id: 1, text: "Disc image..." },
+        ButtonData { flags: MessageBoxButtonFlag::NOTHING, button_id: 2, text: "Game folder..." },
+        ButtonData { flags: MessageBoxButtonFlag::ESCAPEKEY_DEFAULT, button_id: 0, text: "Quit" },
+    ];
+    let text = "Shiloh needs your copy of The X-Files Game (the game is not included).\n\n\
+        Choose a disc image (.iso, .mdf, .bin, .img; select every disc of a set), or the folder of an installed game \
+        or of your disc images.\n\n\
+        You choose once: the place is remembered. You can also drop the disc image onto the program, put it next to \
+        the program, or start it with --data PATH.";
+    loop {
+        let choice = match show_message_box(MessageBoxFlag::INFORMATION, &buttons, "Shiloh", text, None, None) {
+            Ok(ClickedButton::CustomButton(b)) => b.button_id,
+            Ok(ClickedButton::CloseButton) => 0,
+            Err(e) => {
+                eprintln!("xf: message box: {e:?}");
+                0
+            }
+        };
+        let picked: Option<Vec<PathBuf>> = match choice {
+            1 => rfd::FileDialog::new()
+                .set_title(TITLE)
+                .add_filter("Disc images", &["iso", "mdf", "bin", "img", "ISO", "MDF", "BIN", "IMG"])
+                .add_filter("All files", &["*"])
+                .pick_files(),
+            2 => rfd::FileDialog::new().set_title(TITLE).pick_folder().map(|p| vec![p]),
+            _ => {
+                eprintln!("xf: no game data chosen, quitting.\n{}", xf::locate::HELP);
+                std::process::exit(1)
+            }
+        };
+        // the dialog closed without a choice: back to the question
+        let Some(p) = picked.filter(|p| !p.is_empty()) else { continue };
+        match xf::locate::open(&p, true, &mut |l| eprintln!("xf: {l}")) {
+            Ok(root) => {
+                let why = p.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ");
+                return (root, xf::locate::Found { sources: p, origin: xf::locate::Origin::Picked, why });
+            }
+            Err(e) => {
+                eprintln!("xf: {e}");
+                let m = format!("{e}\n\nThat is not The X-Files Game. Please choose again.");
+                let _ = sdl2::messagebox::show_simple_message_box(MessageBoxFlag::WARNING, "Shiloh", &m, None);
+            }
+        }
+    }
+}
+
+thread_local! {
+    /// SDL started early by [`pick_data`]; the window takes it over.
+    static EARLY_SDL: std::cell::RefCell<Option<(sdl2::Sdl, sdl2::VideoSubsystem)>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 fn main() {
@@ -326,6 +456,13 @@ fn main() {
         Some(p) => Hdb::open(p).unwrap_or_else(|e| die(&format!("{}: {e}", p.display()))),
         None => open("XFiles.gam"),
     };
+    // the data loaded: remember where it was (a drop, found next to the program, chosen in the dialog; xf::locate)
+    if let Some((cfg, src)) = &a.remember {
+        match xf::locate::remember(cfg, src) {
+            Ok(()) => eprintln!("xf: remembered in {}", cfg.display()),
+            Err(e) => eprintln!("xf: could not remember the game data: {e}"),
+        }
+    }
     let trace: Option<Vec<TraceEv>> = a.trace.as_ref().map(|p| {
         let t = std::fs::read_to_string(p).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
         parse_trace(&t).unwrap_or_else(|e| die(&e))
@@ -659,8 +796,14 @@ fn window(s: &mut Session, a: &Args) {
     let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u32);
     s.r.w.live_rand = Some(ms);
 
-    let sdl = sdl2::init().unwrap_or_else(|e| die(&e));
-    let video = sdl.video().unwrap_or_else(|e| die(&e));
+    let (sdl, video) = match EARLY_SDL.with(|e| e.borrow_mut().take()) {
+        Some(x) => x,
+        None => {
+            let sdl = sdl2::init().unwrap_or_else(|e| die(&e));
+            let video = sdl.video().unwrap_or_else(|e| die(&e));
+            (sdl, video)
+        }
+    };
     let gl_attr = video.gl_attr();
     gl_attr.set_context_profile(sdl2::video::GLProfile::Core);
     gl_attr.set_context_version(3, 3);

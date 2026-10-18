@@ -78,6 +78,7 @@ fn main() {
     // the file backend that also reads disc images (xf::vfs)
     xf::vfs::install();
     let mut data_src: Vec<PathBuf> = Vec::new();
+    let mut paths: Vec<PathBuf> = Vec::new();
     let mut cache = pcmcache::dir();
     let mut ffmpeg = std::env::var_os("XF_FFMPEG").map(PathBuf::from).unwrap_or_else(|| "ffmpeg".into());
     let mut force = false;
@@ -103,6 +104,8 @@ fn main() {
                 eprintln!("usage: xf-prep [--data DIR] [--cache DIR] [--ffmpeg PATH] [--force]\n       xf-prep --en-subs EN_DIR [--data DIR] [--cache DIR]\n       xf-prep --ru-subs TABLE.json [--cache DIR]\n       xf-prep --subs-texts [--cache DIR]\n       xf-prep --licenses");
                 return;
             }
+            // a bare path: like --data (xf::locate)
+            _ if !x.starts_with('-') => paths.push(x.into()),
             _ => die(&format!("unknown argument {x}")),
         }
     }
@@ -111,14 +114,9 @@ fn main() {
         translate_subs(&cache, ru_subs.as_deref());
         return;
     }
-    if data_src.is_empty() {
-        data_src = xf::vfs::env_sources("XF_DATA");
-    }
-    if data_src.is_empty() {
-        data_src.push(manifest.join("../data/InstalledGame"));
-    }
-    // `--data` repeatable: a folder, disc images or a folder of them (xf::vfs)
-    let data = xf::vfs::data_root_or_exit("xf-prep", &data_src);
+    // `--data` repeatable: a folder, disc images or a folder of them (xf::vfs); without it XF_DATA, a bare path, the
+    // place `xf` remembered, next to the program (xf::locate)
+    let data = xf::locate::find_or_exit("xf-prep", &data_src, &paths, manifest.join("../data/InstalledGame"), false);
     if xf::vfs::find(&data).is_none() && !data.is_dir() {
         die(&format!("--data {}: not a directory", data.display()));
     }

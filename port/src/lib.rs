@@ -7,14 +7,17 @@
 pub mod e2e;
 pub mod exetables;
 pub mod front;
+pub mod gentee;
 pub mod gpu;
 pub mod hdb;
 pub mod io;
 pub mod iso;
+pub mod locate;
 pub mod media;
 pub mod neodb;
 pub mod notices;
 pub mod pe;
+pub mod ppmd;
 pub mod replay;
 pub mod save;
 pub mod sched_replay;

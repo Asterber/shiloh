@@ -12,12 +12,17 @@
 //!   `MININST` before `MEDINST` before the others, discs in volume-label order (`XFILES1` < `XFILES2` …). A file is
 //!   taken from the first layer that has it; a directory lists the union of its layers (case-insensitive names, as the
 //!   game's own lookup: the HDB writes `nav1.nmv`, the disc has `NAV1.NMV`).
+//! - A disc (image or folder copy) whose game roots lack `XFiles.hdb` is searched for a Gentee setup program
+//!   (`*.exe` in its root folder and game roots) whose installer archive holds it ([`crate::gentee`]); the game's
+//!   files in that archive (the HDB's file group) become a layer of their own, first on that disc. They are read
+//!   out of the archive on demand, in memory: nothing is installed or written, no cache.
 //! - The result is mounted at the first source's path ([`mount`]); every core read of a path below it goes through
 //!   the layers ([`VfsFs`], installed with [`install`]), everything else (saves, fonts, the cache) to `std::fs`.
 //!
 //! Files are read lazily by offset from the image: a read returns only the requested file or range (a movie is never
 //! read beyond what the player asks for; the window reads each movie file whole, as from an installed folder).
 //! Images and folders are read-only; nothing is written into the game data.
+use crate::gentee::Setup;
 use crate::io::{Entry, Fs, StdFs};
 use crate::iso::Image;
 use std::collections::{HashMap, HashSet};
@@ -31,6 +36,9 @@ pub enum Layer {
     Dir(PathBuf),
     /// a directory of an image: the image, its node, the directory's path inside the image (for messages)
     Iso(Arc<Image>, usize, String),
+    /// the game files inside a disc's installer archive ([`crate::gentee`]): the archive, the entries that are the
+    /// game's (the group of XFiles.hdb), where the installer is (for messages)
+    Setup(Arc<Setup>, Arc<Vec<usize>>, String),
 }
 
 impl Layer {
@@ -41,6 +49,7 @@ impl Layer {
                 let r = if rel.is_empty() { "/".to_string() } else { format!("/{rel}") };
                 format!("{} [{}]{r}", img.path.display(), img.label)
             }
+            Layer::Setup(_, _, at) => format!("{at} (inside the installer)"),
         }
     }
 }
@@ -51,6 +60,9 @@ enum Hit {
     Dir(PathBuf),
     IsoFile(Arc<Image>, usize),
     IsoDir(Arc<Image>, usize),
+    SetupFile(Arc<Setup>, usize),
+    /// a folder of an installer archive: the archive, its entries, the folder's path (`/`-separated, lower case)
+    SetupDir(Arc<Setup>, Arc<Vec<usize>>, String),
 }
 
 /// The merged game data of several sources.
@@ -119,7 +131,7 @@ fn dir_lookup(dir: &Path, rel: &Path) -> Option<PathBuf> {
         }
         at
     };
-    let c = p.canonicalize().ok()?;
+    let c = dunce::canonicalize(p).ok()?;
     c.starts_with(dir).then_some(c)
 }
 
@@ -140,7 +152,7 @@ impl DataSet {
                               discs: &mut Vec<_>,
                               skipped: &mut Vec<String>|
          -> Result<(), String> {
-            let canon = p.canonicalize().map_err(|e| format!("{}: {e}", p.display()))?;
+            let canon = dunce::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()))?;
             if !seen_img.insert(canon.clone()) {
                 return Ok(());
             }
@@ -149,13 +161,20 @@ impl DataSet {
             for f in other {
                 skipped.push(format!("{} [{}]/{f}", img.path.display(), img.label));
             }
-            if roots.is_empty() {
+            // the game's own files only inside the disc's installer: read from the installer archive
+            let has_hdb = roots.iter().any(|(node, _)| img.child(*node, "xfiles.hdb").is_some());
+            let setups = if has_hdb { Vec::new() } else { iso_setups(&img, &roots) };
+            if roots.is_empty() && setups.is_empty() {
                 return Err(format!("{} (volume {}): no game files on this disc image", p.display(), img.label));
             }
             let n = images.len();
             for (node, rel) in roots {
                 discs
                     .push(((prio(&rel), img.label.to_lowercase(), n, depth(&rel)), Layer::Iso(img.clone(), node, rel)));
+            }
+            for (setup, ents, rel) in setups {
+                let at = format!("{} [{}]/{rel}", img.path.display(), img.label);
+                discs.push(((0, img.label.to_lowercase(), n, depth(&rel)), Layer::Setup(setup, ents, at)));
             }
             images.push(img);
             Ok(())
@@ -166,7 +185,7 @@ impl DataSet {
                 open_image(s, &mut images, &mut discs, &mut skipped)?;
                 continue;
             }
-            let d = s.canonicalize().map_err(|e| format!("{}: {e}", s.display()))?;
+            let d = dunce::canonicalize(s).map_err(|e| format!("{}: {e}", s.display()))?;
             let roots = dir_roots(&d);
             let own = roots.first().is_some_and(|r| r == &d);
             let mut imgs: Vec<PathBuf> = std::fs::read_dir(&d)
@@ -189,6 +208,12 @@ impl DataSet {
             if own {
                 // an installed folder: its own root only (the folder as the game sees it)
                 installed.push(Layer::Dir(d.clone()));
+                // a copy of a disc with media at its root and the game's files only in the installer
+                if dir_lookup(&d, Path::new("xfiles.hdb")).is_none() {
+                    for (setup, ents, rel) in dir_setups(&d, &[]) {
+                        installed.push(Layer::Setup(setup, ents, d.join(&rel).display().to_string()));
+                    }
+                }
             } else if imgs.is_empty() {
                 // a copy of a disc (or of several, one per sub-folder): the game roots found in it
                 let label = d.file_name().map(lower).unwrap_or_default();
@@ -198,6 +223,12 @@ impl DataSet {
                 let (keep, other) = one_family(rels.collect());
                 for f in other {
                     skipped.push(format!("{}/{f}", d.display()));
+                }
+                if !keep.iter().any(|(r, _)| dir_lookup(r, Path::new("xfiles.hdb")).is_some()) {
+                    for (setup, ents, rel) in dir_setups(&d, &keep) {
+                        let at = d.join(&rel).display().to_string();
+                        discs.push(((0, label.clone(), 1000 + si, depth(&rel)), Layer::Setup(setup, ents, at)));
+                    }
                 }
                 for (r, rel) in keep {
                     discs.push(((prio(&rel), label.clone(), 1000 + si, depth(&rel)), Layer::Dir(r)));
@@ -241,6 +272,16 @@ impl DataSet {
                         });
                     }
                 }
+                Layer::Setup(s, ents, _) => {
+                    let key = slash_lower(rel);
+                    if key.is_empty() {
+                        v.push(Hit::SetupDir(s.clone(), ents.clone(), key));
+                    } else if let Some(&i) = ents.iter().find(|&&i| s.entries[i].name.to_lowercase() == key) {
+                        v.push(Hit::SetupFile(s.clone(), i));
+                    } else if ents.iter().any(|&i| s.entries[i].name.to_lowercase().starts_with(&format!("{key}/"))) {
+                        v.push(Hit::SetupDir(s.clone(), ents.clone(), key));
+                    }
+                }
             }
         }
         v
@@ -250,7 +291,7 @@ impl DataSet {
     fn file(&self, rel: &Path) -> std::io::Result<Hit> {
         for h in self.hits(rel) {
             match h {
-                Hit::File(_) | Hit::IsoFile(..) => return Ok(h),
+                Hit::File(_) | Hit::IsoFile(..) | Hit::SetupFile(..) => return Ok(h),
                 // a directory in an earlier layer hides a file of the same name in a later one
                 _ => break,
             }
@@ -265,6 +306,7 @@ impl DataSet {
         match self.file(rel)? {
             Hit::File(p) => std::fs::read(p),
             Hit::IsoFile(img, i) => img.read(i),
+            Hit::SetupFile(s, i) => s.read(i),
             _ => unreachable!(),
         }
     }
@@ -273,6 +315,7 @@ impl DataSet {
         match self.file(rel)? {
             Hit::File(p) => Ok(std::fs::metadata(p)?.len()),
             Hit::IsoFile(img, i) => Ok(img.node(i).size),
+            Hit::SetupFile(s, i) => Ok(s.entries[i].size),
             _ => unreachable!(),
         }
     }
@@ -281,6 +324,7 @@ impl DataSet {
         match self.file(rel)? {
             Hit::File(p) => StdFs.read_at(&p, off, buf),
             Hit::IsoFile(img, i) => img.read_at(i, off, buf),
+            Hit::SetupFile(s, i) => s.read_at(i, off, buf),
             _ => unreachable!(),
         }
     }
@@ -291,7 +335,7 @@ impl DataSet {
 
     /// Whether `rel` names a directory in some layer.
     pub fn is_dir(&self, rel: &Path) -> bool {
-        matches!(self.hits(rel).first(), Some(Hit::Dir(_) | Hit::IsoDir(..)))
+        matches!(self.hits(rel).first(), Some(Hit::Dir(_) | Hit::IsoDir(..) | Hit::SetupDir(..)))
     }
 
     /// The union of the directory `rel` in every layer (first layer wins a name, letter case ignored); entry paths are
@@ -328,6 +372,21 @@ impl DataSet {
                     for &c in &img.node(i).children {
                         let n = img.node(c);
                         add(n.name.clone(), n.is_dir, &mut out);
+                    }
+                }
+                Hit::SetupDir(s, ents, key) => {
+                    any = true;
+                    let pre = if key.is_empty() { String::new() } else { format!("{key}/") };
+                    for &i in ents.iter() {
+                        let name = &s.entries[i].name;
+                        let head = name.get(..pre.len()).filter(|h| h.eq_ignore_ascii_case(&pre));
+                        let Some(rest) = head.and_then(|_| name.get(pre.len()..)) else {
+                            continue;
+                        };
+                        match rest.split_once('/') {
+                            Some((dir, _)) => add(dir.to_string(), true, &mut out),
+                            None => add(rest.to_string(), false, &mut out),
+                        }
                     }
                 }
                 _ => {}
@@ -374,6 +433,79 @@ fn has_cab(img: &Image, dir: usize, depth: usize) -> bool {
         (!n.is_dir && n.name.to_lowercase().ends_with(".cab") && n.size > 4096)
             || (n.is_dir && depth > 0 && has_cab(img, c, depth - 1))
     })
+}
+
+/// `rel` with `/` between its components, lower case (an installer archive's names).
+fn slash_lower(rel: &Path) -> String {
+    let parts: Vec<String> = rel
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(n) => Some(lower(n)),
+            _ => None,
+        })
+        .collect();
+    parts.join("/")
+}
+
+/// The entries of an installer archive that are the game's: the group of XFiles.hdb; None when it has no HDB.
+fn game_entries(s: &Setup) -> Option<Vec<usize>> {
+    let hdb = s.entries.iter().find(|e| e.name.eq_ignore_ascii_case("xfiles.hdb"))?;
+    Some((0..s.entries.len()).filter(|&i| s.entries[i].group == hdb.group).collect())
+}
+
+/// Smallest program file taken as a possible installer.
+const SETUP_MIN: u64 = 64 << 10;
+
+fn is_exe(name: &str) -> bool {
+    name.to_lowercase().ends_with(".exe")
+}
+
+type SetupLayer = (Arc<Setup>, Arc<Vec<usize>>, String);
+
+/// The installer archives with the game's files on an image: the setup programs in its root folder and in its
+/// game roots (rel = the program's path inside the image).
+fn iso_setups(img: &Arc<Image>, roots: &[(usize, String)]) -> Vec<SetupLayer> {
+    let mut dirs: Vec<(usize, String)> = vec![(img.root(), String::new())];
+    dirs.extend(roots.iter().filter(|r| r.0 != img.root()).cloned());
+    let mut out = Vec::new();
+    for (dir, rel) in dirs {
+        for &c in &img.node(dir).children {
+            let n = img.node(c);
+            if n.is_dir || !is_exe(&n.name) || n.size < SETUP_MIN {
+                continue;
+            }
+            let Ok(s) = Setup::open(Box::new(crate::gentee::IsoSource(img.clone(), c))) else { continue };
+            if let Some(ents) = game_entries(&s) {
+                let r = if rel.is_empty() { n.name.clone() } else { format!("{rel}/{}", n.name) };
+                out.push((Arc::new(s), Arc::new(ents), r));
+            }
+        }
+    }
+    out
+}
+
+/// [`iso_setups`] for a copy of a disc in the folder `d` (rel = the program's path below `d`).
+fn dir_setups(d: &Path, roots: &[(PathBuf, String)]) -> Vec<SetupLayer> {
+    let mut dirs: Vec<PathBuf> = vec![d.to_path_buf()];
+    dirs.extend(roots.iter().map(|r| r.0.clone()).filter(|r| r != d));
+    let mut out = Vec::new();
+    for dir in dirs {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().into_owned();
+            if !is_exe(&name) || !p.is_file() || p.metadata().map_or(0, |m| m.len()) < SETUP_MIN {
+                continue;
+            }
+            let Ok(src) = crate::gentee::FileSource::open(&p) else { continue };
+            let Ok(s) = Setup::open(Box::new(src)) else { continue };
+            if let Some(ents) = game_entries(&s) {
+                let r = p.strip_prefix(d).unwrap_or(&p).to_string_lossy().replace('\\', "/");
+                out.push((Arc::new(s), Arc::new(ents), r));
+            }
+        }
+    }
+    out
 }
 
 /// Layer order inside one disc: `MININST` (what an install copies), `MEDINST`, the rest.
@@ -586,7 +718,7 @@ pub fn needs_vfs(sources: &[PathBuf]) -> bool {
                         .extension()
                         .is_some_and(|x| IMAGE_EXTS.contains(&x.to_string_lossy().to_lowercase().as_str()))
             });
-            has_img && !dir_roots(one).first().is_some_and(|r| one.canonicalize().is_ok_and(|c| &c == r))
+            has_img && !dir_roots(one).first().is_some_and(|r| dunce::canonicalize(one).is_ok_and(|c| &c == r))
         }
         _ => true,
     }

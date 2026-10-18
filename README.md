@@ -31,12 +31,16 @@ distributes nothing of the game.
   English data, and a replay of the whole recorded playthrough (recorded on the Russian release), which matches where
   the two releases' data match. Where the 2.05 program itself behaves differently from 1.00 (for example the order of
   the note pad's days), Shiloh does what 1.00 does.
+- The Russian release as a single DVD image (`.iso`) runs directly too. On that disc the game's database, program and
+  fonts exist only inside its installer (`Setup.exe`); Shiloh reads them straight out of the installer archive, in
+  memory, so nothing has to be installed first and nothing is written next to the image. The files it gets are
+  identical to an installed Russian 1.00 copy. Checked without a window: the main menu and New Game with the opening.
 - With the English DVD alone, English is the only language: the subtitles are the movies' own English captions
   (F3 or Settings → Subtitles: on; off by default, as in the game), no Russian options.
   With both an English and a Russian copy, Shiloh can switch the game language and show English subtitles over the
   Russian release.
-- Platforms: built and played on macOS (Apple Silicon). Linux and Windows have code paths (settings and cache
-  directories) but are untested. The browser version needs a current browser with WebAssembly; played through in Firefox.
+- Platforms: built and played on macOS (Apple Silicon). The Windows build has been run on a Windows PC (starting it
+  by dropping a disc image onto `xf.exe`). Linux is untested. The browser version needs a current browser with WebAssembly; played through in Firefox.
 - Expect bugs. Where the port's behaviour differs from the original game, a report with the place in the game and
   what the original does there is very welcome.
 
@@ -70,8 +74,25 @@ Ready-made builds are on this repository's GitHub Releases page, one archive per
 yourself). `SHA256SUMS` lists their checksums. You still need your own copy of the game; no archive contains any of it.
 
 Each archive holds `xf` (the window), `xf-serve` (the browser version's local server; its page is in `web/` next to
-it), `xf-prep` (the one-time music conversion), and the license files. Run them from a terminal, e.g.
-`./xf --data /path/to/your/game` or `./xf-serve --data /path/to/your/game`; the options are the same as below.
+it), `xf-prep` (the one-time music conversion), and the license files.
+
+**Windows: just drag your disc image (`.iso` / `.mdf`) or game folder onto `xf.exe`.**
+
+Starting the game:
+
+1. Unpack the archive and double-click `xf` (`xf.exe` on Windows). The first time, it asks for your copy of the
+   game: choose the disc image (select every disc of a multi-disc set) or the game folder. The choice is
+   remembered, so after that a double-click starts the game.
+2. Or put the disc image(s) or the installed game folder next to `xf` (or in a folder beside it): it finds them
+   there by itself, the English DVD Edition first when there are several copies.
+3. On macOS or Linux you can also start it from a terminal with the path: `./xf /path/to/your-dvd.iso`. On macOS,
+   double-clicking `xf` in the Finder opens it in Terminal.
+4. `--data` still works and wins over everything else: `./xf --data /path/to/your/game` or
+   `./xf-serve --data /path/to/your/game`. The options are the same as below.
+
+`xf-serve` looks for the game the same way (no dialog: it prints what to do when it finds nothing) and, started
+with a double-click, opens the game's page in your browser. If something goes wrong after a double-click or a drop,
+`xf` shows the error in a message box.
 
 - macOS: the builds are not signed. After unpacking, clear the download quarantine once:
   `xattr -dr com.apple.quarantine shiloh-<version>-macos-universal`. Needs macOS 11 or later.
@@ -80,13 +101,16 @@ it), `xf-prep` (the one-time music conversion), and the license files. Run them 
   ALSA / PulseAudio libraries are used at run time.
 - SDL2 is linked into the window binary on every platform; nothing else needs installing (`ffmpeg` only for `xf-prep`).
 
-The macOS build is the tested one. The Linux and Windows archives are built by CI but have not been play-tested yet.
+The macOS build is the one played through; the Windows build has been run on a Windows PC. The Linux archive is built by
+CI but has not been tried yet.
 
 ## What you need
 
 - Your own copy of the game: a disc image (`.iso`, `.mdf`, `.bin` / `.img`) or the disc itself, or an installed game
-  directory (the one holding `XFiles.hdb`, `XFiles.gam`, `XV/`, `XS/`). The English DVD Edition image works on its own
-  (see Status).
+  directory (the one holding `XFiles.hdb`, `XFiles.gam`, `XV/`, `XS/`). These disc images work on their own, with
+  no installation: the English DVD Edition (e.g. as an `.mdf` / `.mds` image) and the Russian release as a DVD `.iso`
+  image (see Status). For discs that keep the game files only inside an InstallShield archive, install the game once
+  and pass that folder.
 - Rust (stable, via [rustup](https://rustup.rs)).
 - SDL2 for the native window, found through `pkg-config` (macOS: `brew install sdl2 pkg-config`). Not needed for the
   browser version.
@@ -102,7 +126,7 @@ cd port
 cargo run --release --bin xf -- --data /path/to/your/game
 ```
 
-`--data` takes a game directory or a disc image directly, e.g. `--data "/path/to/The X-Files DVD.iso"` or
+`--data` takes a game directory or a disc image directly, e.g. `--data /path/to/your-dvd.iso` or
 `--data /path/to/XFILES1.mdf`.
 
 Music (one time, needs `ffmpeg`; without it the QDMC tracks stay silent):

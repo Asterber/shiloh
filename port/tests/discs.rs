@@ -203,3 +203,105 @@ fn real_images() {
     assert!(movies > 100);
     assert!(lib.find("nav1.nmv").is_some());
 }
+
+/// A made-up setup program: the game's files (group 1: a stored database, packed others, one in a sub-folder) and
+/// the installer's own picture (group 2). Big enough to be taken as an installer.
+fn setup_exe(hdb: &[u8]) -> Vec<u8> {
+    let filler: Vec<u8> = (0..80_000u32).map(|i| (i * 7 % 251) as u8).collect();
+    xf::gentee::build(
+        &[
+            ("XFiles.hdb", 1, hdb, false),
+            ("XFiles.gam", 1, b"gam-setup", true),
+            ("XFilesT.dll", 1, &filler, true),
+            ("Fonts/Jrn.ttr", 1, b"font", false),
+            ("SETUP.BMP", 2, b"BM-picture", true),
+        ],
+        100,
+    )
+}
+
+/// A disc whose game files are only inside its installer: they are read from the installer archive, in memory,
+/// merged with the disc's media folders; the installer's own files stay out.
+#[test]
+fn installer_on_disc() {
+    let d = tmp("setup");
+    let hdb: Vec<u8> = (0..70_000u32).map(|i| (i % 253) as u8).collect();
+    let exe = setup_exe(&hdb);
+    let img = image(
+        "XFILES DVD",
+        &[("Setup.exe", &exe), ("Autorun.exe", b"MZ-not-a-setup"), ("XV/1.xmv", b"movie-1"), ("NAV1.NMV", b"nav-1")],
+        true,
+        2048,
+    );
+    std::fs::write(d.join("dvd.iso"), &img).unwrap();
+    let ds = DataSet::open(&[d.join("dvd.iso")]).unwrap();
+    let layers = ds.describe();
+    assert_eq!(layers.len(), 2, "{layers:?}");
+    assert!(layers[0].ends_with("[XFILES DVD]/Setup.exe (inside the installer)"), "{layers:?}");
+    assert!(ds.read(Path::new("xfiles.HDB")).unwrap() == hdb);
+    assert_eq!(ds.read(Path::new("XFiles.gam")).unwrap(), b"gam-setup");
+    assert_eq!(ds.size(Path::new("xfilest.dll")).unwrap(), 80_000);
+    let mut b = [0u8; 3];
+    assert_eq!(ds.read_at(Path::new("XFILES.HDB"), 69_998, &mut b).unwrap(), 2);
+    assert_eq!(b[..2], hdb[69_998..]);
+    assert_eq!(ds.read(Path::new("fonts/JRN.TTR")).unwrap(), b"font");
+    assert!(ds.is_dir(Path::new("Fonts")) && !ds.is_file(Path::new("fonts")));
+    assert!(ds.read(Path::new("SETUP.BMP")).is_err());
+    let mut top: Vec<String> = ds.read_dir(Path::new("")).unwrap().into_iter().map(|e| e.name.to_lowercase()).collect();
+    top.sort();
+    assert_eq!(top, ["autorun.exe", "fonts", "nav1.nmv", "setup.exe", "xfiles.gam", "xfiles.hdb", "xfilest.dll", "xv"]);
+    let fonts = ds.read_dir(Path::new("FONTS")).unwrap();
+    assert_eq!((fonts.len(), fonts[0].name.as_str(), fonts[0].is_dir), (1, "Jrn.ttr", false));
+    assert!(ds.check().iter().all(|(fatal, _)| !fatal), "{:?}", ds.check());
+
+    // a copy of the disc in a folder: the same
+    let dir = d.join("copy");
+    std::fs::create_dir_all(dir.join("XV")).unwrap();
+    std::fs::write(dir.join("SETUP.EXE"), &exe).unwrap();
+    std::fs::write(dir.join("XV/1.xmv"), b"movie-1").unwrap();
+    std::fs::write(dir.join("NAV1.NMV"), b"nav-1").unwrap();
+    let ds = DataSet::open(std::slice::from_ref(&dir)).unwrap();
+    assert!(ds.read(Path::new("XFiles.hdb")).unwrap() == hdb);
+    assert_eq!(ds.read(Path::new("xv/1.xmv")).unwrap(), b"movie-1");
+
+    // the database on the disc as a plain file: the installer is not read
+    let img = image("XFILES1", &[("Setup.exe", &exe), ("XFiles.hdb", b"hdb-disc"), ("XV/1.xmv", b"m")], true, 2048);
+    std::fs::write(d.join("plain.iso"), &img).unwrap();
+    let ds = DataSet::open(&[d.join("plain.iso")]).unwrap();
+    assert_eq!(ds.describe().len(), 1);
+    assert_eq!(ds.read(Path::new("XFiles.hdb")).unwrap(), b"hdb-disc");
+    assert!(ds.read(Path::new("XFiles.gam")).is_err());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The user's own image of a disc whose game files are inside a Gentee installer (`XF_SETUP_ISO`, e.g. a DVD of the
+/// Russian edition): the files come out of the installer, every packed entry decodes to its stated size (the PPMd
+/// decoder on real data), the HDB and GAM open. Skipped without the image.
+#[test]
+fn setup_image() {
+    let src = xf::vfs::env_sources("XF_SETUP_ISO");
+    if src.is_empty() {
+        eprintln!("skipping: XF_SETUP_ISO (a disc image with the game inside its installer) not set");
+        return;
+    }
+    let ds = DataSet::open(&src).unwrap();
+    assert!(ds.describe()[0].ends_with("(inside the installer)"), "{:?}", ds.describe());
+    assert!(ds.check().iter().all(|(fatal, _)| !fatal), "{:?}", ds.check());
+    let img = &ds.images[0];
+    let setup = img.lookup(img.root(), Path::new("setup.exe")).expect("Setup.exe on the image");
+    let s = xf::gentee::Setup::open(Box::new(xf::gentee::IsoSource(img.clone(), setup))).unwrap();
+    let mut packed = 0;
+    for (i, e) in s.entries.iter().enumerate() {
+        let b = s.read(i).unwrap();
+        assert_eq!(b.len() as u64, e.size, "{}", e.name);
+        packed += !e.stored as usize;
+    }
+    eprintln!("{} entries, {packed} packed, all decoded", s.entries.len());
+    assert!(packed > 0);
+    let root = xf::vfs::data_root(&src, &mut |l| eprintln!("{l}")).unwrap();
+    let _h = xf::hdb::Hdb::open(root.join("XFiles.hdb")).unwrap();
+    let _g = xf::hdb::Hdb::open(root.join("XFiles.gam")).unwrap();
+    for f in ["XFiles.exe", "XFilesT.dll", "Jrn.ttr", "Hcd.ttr"] {
+        assert!(xf::io::read(&root.join(f)).is_ok_and(|b| !b.is_empty()), "{f}");
+    }
+}

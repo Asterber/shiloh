@@ -8,8 +8,7 @@ cd port
 cargo run --release --bin xf -- --data ../data/InstalledGame
 ```
 
-`--data` defaults to `XF_DATA`, else `../data/InstalledGame`; it may also name disc images (see
-[Running from disc images](#running-from-disc-images)). F10 opens the port's settings screen (scaling, window
+`--data` may also name disc images (see [Running from disc images](#running-from-disc-images)). F10 opens the port's settings screen (scaling, window
 size, volume, subtitles, language). Without a window, `--frames N --dump DIR` starts a New Game headless and writes N
 PPM frames to DIR.
 
@@ -20,6 +19,37 @@ One-time steps and options are in [port/README.md](../port/README.md):
 - `--en-data DIR --game-lang en` plays with the English voice-over and texts.
 
 Browser front: [port/web/README.md](../port/web/README.md) (`port/web/build.sh`, then `xf-serve`).
+
+## Where the game data is found
+
+`xf`, `xf-serve` and `xf-prep` need no flag when they can find the game themselves (`port/src/locate.rs`). First hit
+wins:
+
+1. `--data` (repeatable), else `XF_DATA` (a path list). An error here ends the program, as before.
+2. Bare path arguments, taken like `--data` (`xf CD1.iso CD2.iso`). This is what dropping a disc image or folder onto
+   `xf.exe` does on Windows: Explorer starts it with the dropped paths.
+3. The source tree's `data/InstalledGame` when it holds the game (developers and tests).
+4. The place remembered in the settings file (`data = …` in `settings.txt`, see [port/README.md](../port/README.md))
+   when it still exists. Headless runs (`--frames`) never read it.
+5. Next to the program: the executable's own folder (its real path: a binary double-clicked in the macOS Finder runs
+   with the home folder as its current folder) and the current folder unless that is the home folder, a drive's root
+   or the Windows folder. In each, and in its direct sub-folders only: an installed game folder (it holds
+   `XFiles.hdb`) or the disc images (`.iso` / `.mdf` / `.bin` / `.img`) that hold game files. Other images, deeper
+   folders and hidden folders are left out. With several copies the most complete one wins (no missing essential
+   file), then the English DVD Edition, then the one with more discs; each copy found is logged with the reason.
+6. Nothing found: the window asks with a dialog (a disc image, possibly several, or a folder) until the choice holds
+   the game, or the player quits. `xf --frames`, `xf-serve` and `xf-prep` print what to do and exit with status 2.
+
+Steps 2, 5 and 6 are written to the settings file once the data has loaded (`xf`, `xf-serve`; not `xf-prep`), so the
+next start needs nothing. `--data` and `XF_DATA` are never written: like the other command-line flags they hold for
+that run only, so a one-off `--data` never replaces the player's copy. `--no-config` turns the remembered place off
+for `xf` (neither read nor written).
+
+Started by a player, with no flags (a double-click or a drop; on Windows also when Explorer made the console for it),
+`xf` shows its errors in a message box as well, since the console may close with the program. `xf.exe` stays a console
+program, so from a terminal its output is as before. `xf-serve` and `xf-prep` wait for Enter before closing on an error when
+Windows made the console for them; `xf-serve` started with no flags also opens its page in the browser (`--open` / `--no-open` decide; the tests never start the binary). A drop
+of something that is not the game shows the reason, then the dialog.
 
 ## Running from disc images
 
@@ -56,10 +86,21 @@ and `xf-prep` (`--data`, `--en-subs IMAGE`) read them too.
   full game `XFiles.exe` (computer searches, phone, cheats, e-mail replies, cursors), `XFilesT.dll` (interface texts),
   `Jrn.ttr` / `Hcd.ttr` (document fonts) and the movies. On the EN DVD Edition all of them are plain files
   (`English/MININST` holds what an install copies, its `DATA1.CAB` is a 469-byte stub), so the DVD image alone is a
-  complete English data set. If a disc keeps these files only inside an InstallShield archive (`DATA1.CAB` of a few
-  MB) the port says so: install the game once (or copy the files from an install) and pass that folder first,
-  `--data INSTALLED --data CD1.iso ...`; the movies can still come from the images. The RU 1.00 discs' layout was not
-  checked against real images (none were at hand); the project's RU data is an installed folder.
+  complete English data set.
+- **Game files inside the installer:** on the Russian edition as a single DVD image the movies, `NAV*.NMV` and the
+  `.PFF` files are plain files on the disc, but `XFiles.hdb`, `XFiles.gam`, `XFiles.exe`, the `XFiles?.dll` and the
+  `.ttr` fonts exist only inside its `Setup.exe` (a Gentee CreateInstall installer). The port then reads them straight
+  out of the installer's archive (`port/src/gentee.rs`, PPMd decoder `port/src/ppmd.rs`): when a disc has no
+  `XFiles.hdb` as a plain file, every `*.exe` of at least 64 KB in its root (and in its game folders) is checked for
+  such an archive; the files of the archive's game group become a layer before the disc's own files. Nothing is
+  installed, extracted or cached: stored entries are read from the image by offset, packed ones decoded in memory
+  when read (on that DVD all game files are stored; only the installer's own pictures are packed). The files come out
+  byte-identical to an installed RU 1.00 copy, so the image alone is the complete RU data set:
+  `--data DVD.iso`. The same works for a copy of such a disc in a folder.
+- If a disc keeps these files only inside an InstallShield archive (`DATA1.CAB` of a few MB) the port says so: install
+  the game once (or copy the files from an install) and pass that folder first, `--data INSTALLED --data CD1.iso ...`;
+  the movies can still come from the images. The RU 1.00 CD set's layout was not checked against real images (none
+  were at hand). Images of other platforms' versions (the PlayStation discs) are not this game's data.
 - **The EN DVD Edition alone** (`--data XFILES1.mdf`): the game runs on the English data — its `XFILES.HDB` /
   `XFILES.GAM` and its program `XFILES.EXE`, a later build (FileVersion 2.05.00) than RU 1.00 whose tables the port
   reads at their own addresses (RE_NOTES H2300). English is then the only game language (no `--en-data`, F4 does

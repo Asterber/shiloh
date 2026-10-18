@@ -184,6 +184,11 @@ pub fn options(web: bool) -> impl Iterator<Item = &'static Opt> {
 /// H2100: the settings key that keeps the host's Preferences (not an option of the screen; written after a Save).
 pub const HOST_PREFS: &str = "host_prefs";
 
+/// The settings key that remembers where the player's copy of the game is (port feature, [`crate::locate`]): the
+/// data sources of the last run that found them itself (a path dropped on the program, found next to it, chosen in
+/// the window's dialog), as a path list (`:`-separated on Unix, `;` on Windows). Not an option of the screen.
+pub const DATA: &str = "data";
+
 /// H2100: `var:value` pairs, the variable in hex, the value decimal (`369:1 3d5:72 …`).
 pub fn host_prefs_text(prefs: &[(u32, i32)]) -> String {
     prefs.iter().map(|(v, x)| format!("{v:x}:{x}")).collect::<Vec<_>>().join(" ")
@@ -256,6 +261,13 @@ impl Settings {
             self.vals.retain(|(k, _)| *k != HOST_PREFS);
             if !val.trim().is_empty() {
                 self.vals.push((HOST_PREFS, val.trim().to_string()));
+            }
+            return Ok(());
+        }
+        if key == DATA {
+            self.vals.retain(|(k, _)| *k != DATA);
+            if !val.trim().is_empty() {
+                self.vals.push((DATA, val.trim().to_string()));
             }
             return Ok(());
         }
@@ -389,6 +401,19 @@ impl Settings {
     /// H2100: keep the session's host Preferences (after a Save wrote them, `Session::prefs_saved`).
     pub fn set_host_prefs(&mut self, prefs: &[(u32, i32)]) {
         let _ = self.set(HOST_PREFS, &host_prefs_text(prefs));
+    }
+
+    /// The remembered game data sources ([`DATA`]; empty = none).
+    pub fn data_paths(&self) -> Vec<PathBuf> {
+        std::env::split_paths(self.get(DATA)).filter(|p| !p.as_os_str().is_empty()).collect()
+    }
+
+    /// Remember the game data sources ([`DATA`]); Err when a path cannot be written in a path list (it holds the
+    /// list separator).
+    pub fn set_data_paths(&mut self, paths: &[PathBuf]) -> Result<(), String> {
+        let v = std::env::join_paths(paths).map_err(|e| format!("{DATA}: {e}"))?;
+        let v = v.into_string().map_err(|_| format!("{DATA}: not a UTF-8 path"))?;
+        self.set(DATA, &v)
     }
 
     /// The captions value to force after New Game / Load: None = the game's own preference.

@@ -23,6 +23,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dunce"
+version = "1.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
 name = "font-types"
 version = "0.12.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -173,8 +179,9 @@ checksum = "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
 
 [[package]]
 name = "xf"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "dunce",
  "jpeg-decoder",
  "serde_json",
  "skrifa",
@@ -182,7 +189,7 @@ dependencies = [
 
 [[package]]
 name = "xf-web"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "xf",
 ]

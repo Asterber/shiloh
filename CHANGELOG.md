@@ -2,6 +2,22 @@
 
 Each release has a section `## X.Y.Z`; `tools/release/release.sh` takes the release notes from it.
 
+## 0.2.0
+
+Easier start: no command line needed.
+
+- Windows: drag your disc image (`.iso` / `.mdf`) or game folder onto `xf.exe` to play.
+- Double-click `xf`: it finds a disc image or game folder placed next to it, or asks for your copy once with a file
+  dialog and remembers the choice.
+- `xf-serve` finds the game the same way and, started with a double-click, opens the game in your browser.
+- Errors after a double-click or a drop show in a message box instead of a console window that closes at once.
+- The Russian release as a single DVD `.iso`, whose game files are only inside its installer, now runs directly from
+  the image, with no installation.
+- Windows: file paths in messages no longer start with `\\?\`.
+
+Known issue (unchanged): the last chase with Mulder cannot be won with normal clicks; use the Artificial Intuition
+hint icon and the action it suggests.
+
 ## 0.1.0
 
 First public release.

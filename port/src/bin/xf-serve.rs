@@ -2,7 +2,13 @@
 //! the game files with HTTP Range support. The browser runs the engine; this only serves files.
 //!
 //!   xf-serve [--data DIR|IMAGE ...] [--cache DIR] [--saves DIR] [--saves-in server|browser] [--web DIR] [--listen ADDR:PORT]
-//!            [--trace T.jsonl] [--fonts DIR] [--en-data DIR|IMAGE ...] [--licenses]
+//!            [--trace T.jsonl] [--fonts DIR] [--en-data DIR|IMAGE ...] [--open | --no-open] [--licenses] [PATH ...]
+//!
+//! Without `--data` the game data is looked for as the window does (`xf::locate`): XF_DATA, bare PATH arguments (drag
+//! and drop), ../data/InstalledGame, the place `xf` remembered, next to the program; a bare path or a find next to the
+//! program is remembered. Nothing found: instructions on stderr, exit 2 (on Windows after Enter when the console was
+//! made for xf-serve). Started with no flags (a double-click) it opens the page in the browser; `--open` /
+//! `--no-open` decide.
 //!
 //! `--data` / `--en-data` may be given more than once and may name disc images (`.iso`, `.mdf`, `.bin`, `.img`) or a
 //! folder of them (port feature, `xf::vfs`): the sources are merged into one virtual game folder, served from the
@@ -72,7 +78,23 @@ enum SavesIn {
 
 fn die(m: &str) -> ! {
     eprintln!("xf-serve: {m}");
+    xf::locate::pause_if_own_console();
     std::process::exit(2)
+}
+
+/// Open `url` in the default browser (`--open`); errors are only logged.
+fn open_browser(url: &str) {
+    let r = if cfg!(target_os = "macos") {
+        std::process::Command::new("open").arg(url).spawn()
+    } else if cfg!(windows) {
+        // `start` is a cmd built-in; the empty "" is its window title
+        std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(url).spawn()
+    };
+    if let Err(e) = r {
+        eprintln!("xf-serve: could not open a browser ({e}): open {url} yourself");
+    }
 }
 
 fn main() {
@@ -89,6 +111,9 @@ fn main() {
     let mut saves_in = std::env::var("XF_SAVES_IN").ok().filter(|v| !v.is_empty());
     let mut fonts: Vec<PathBuf> = std::env::var_os("XF_FONT_DIR").map(PathBuf::from).into_iter().collect();
     let mut en: Vec<PathBuf> = Vec::new();
+    let mut paths: Vec<PathBuf> = Vec::new();
+    // started with no flags (a double-click, a drop): open the page in the browser; --open / --no-open decide
+    let mut open = std::env::args().skip(1).all(|x| !x.starts_with('-'));
     let mut it = std::env::args().skip(1);
     while let Some(x) = it.next() {
         let mut val = || it.next().unwrap_or_else(|| die(&format!("{x}: value missing")));
@@ -107,9 +132,13 @@ fn main() {
                 return;
             }
             "-h" | "--help" => {
-                eprintln!("usage: xf-serve [--data DIR|IMAGE ...] [--cache DIR] [--saves DIR] [--saves-in server|browser] [--web DIR] [--listen ADDR:PORT] [--trace T.jsonl] [--fonts DIR] [--en-data DIR|IMAGE ...] [--licenses]");
+                eprintln!("usage: xf-serve [--data DIR|IMAGE ...] [--cache DIR] [--saves DIR] [--saves-in server|browser] [--web DIR] [--listen ADDR:PORT] [--trace T.jsonl] [--fonts DIR] [--en-data DIR|IMAGE ...] [--open | --no-open] [--licenses] [PATH ...]");
                 return;
             }
+            "--open" => open = true,
+            "--no-open" => open = false,
+            // a bare path: like --data (drag and drop onto the program; xf::locate)
+            _ if !x.starts_with('-') => paths.push(x.into()),
             _ => die(&format!("unknown argument {x}")),
         }
     }
@@ -118,17 +147,17 @@ fn main() {
             .iter()
             .map(PathBuf::from),
     );
-    if data.is_empty() {
-        data = xf::vfs::env_sources("XF_DATA");
-    }
-    if data.is_empty() {
-        data.push(manifest.join("../data/InstalledGame"));
-    }
-    let data = game_root("--data", &data);
+    // `--data`, XF_DATA, a bare path, the source tree's data, the remembered place, next to the program (xf::locate)
+    let data = xf::locate::find_or_exit("xf-serve", &data, &paths, manifest.join("../data/InstalledGame"), true);
+    // a single folder canonical (as before); a mounted data set (disc images) as it is
+    let data = match xf::vfs::find(&data) {
+        Some(_) => data,
+        None => dunce::canonicalize(&data).unwrap_or_else(|e| die(&format!("--data {}: {e}", data.display()))),
+    };
     if !xf::io::is_file(&data.join("XFiles.hdb")) {
         eprintln!("xf-serve: warning: no XFiles.hdb in {}", data.display());
     }
-    let web = web.canonicalize().unwrap_or_else(|e| die(&format!("--web {}: {e}", web.display())));
+    let web = dunce::canonicalize(&web).unwrap_or_else(|e| die(&format!("--web {}: {e}", web.display())));
     if !web.join("pkg/xf_web.wasm").is_file() {
         eprintln!("xf-serve: warning: {} missing — build it with port/web/build.sh", web.join("pkg/xf_web.wasm").display());
     }
@@ -136,7 +165,7 @@ fn main() {
         eprintln!("xf-serve: WARNING: listening on {listen} — reachable from other machines. The game files are your own");
         eprintln!("          licensed copy: use this on a trusted LAN only and NEVER expose this port to the internet.");
     }
-    let cache = cache.and_then(|c| c.canonicalize().ok());
+    let cache = cache.and_then(|c| dunce::canonicalize(c).ok());
     match &cache {
         Some(c) if c.join(xf::media::pcmcache::SUBDIR).is_dir() => eprintln!("xf-serve: PCM cache {}", c.display()),
         _ => eprintln!("xf-serve: no PCM cache — QDMC music stays silent (run xf-prep once, see port/README.md)"),
@@ -180,6 +209,12 @@ fn main() {
     let l = TcpListener::bind(listen).unwrap_or_else(|e| die(&format!("{listen}: {e}")));
     eprintln!("xf-serve: data {}  web {}", conf.data.display(), conf.web.display());
     eprintln!("xf-serve: open http://{listen}/");
+    if open {
+        // 0.0.0.0 / [::] are not addresses a browser can open
+        let host = if listen.ip().is_unspecified() { "localhost".to_string() } else { listen.ip().to_string() };
+        let host = if listen.is_ipv6() && host != "localhost" { format!("[{host}]") } else { host };
+        open_browser(&format!("http://{host}:{}/", listen.port()));
+    }
     for s in l.incoming().flatten() {
         std::thread::spawn(move || {
             let _ = serve(s, conf);
@@ -198,7 +233,7 @@ fn default_web(exe_dir: Option<&Path>, manifest: &Path) -> PathBuf {
 fn game_root(flag: &str, src: &[PathBuf]) -> PathBuf {
     if !xf::vfs::needs_vfs(src) {
         let d = &src[0];
-        return d.canonicalize().unwrap_or_else(|e| die(&format!("{flag} {}: {e}", d.display())));
+        return dunce::canonicalize(d).unwrap_or_else(|e| die(&format!("{flag} {}: {e}", d.display())));
     }
     xf::vfs::data_root(src, &mut |l| eprintln!("xf-serve: {flag}: {l}")).unwrap_or_else(|e| die(&format!("{flag}: {e}")))
 }
@@ -372,7 +407,7 @@ const MAX_SAVE_FILES: usize = 64;
 /// the same atomic write the saves use, then removed).
 fn saves_dir(dir: &Path, data: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let d = dir.canonicalize().map_err(|e| e.to_string())?;
+    let d = dunce::canonicalize(dir).map_err(|e| e.to_string())?;
     if d.starts_with(data) {
         return Err("inside the game data".into());
     }
@@ -464,8 +499,8 @@ fn confined(root: &Path, rel: &str) -> Option<PathBuf> {
     if !rp.components().all(|c| matches!(c, Component::Normal(_))) {
         return None;
     }
-    let root = root.canonicalize().ok()?;
-    let p = root.join(rp).canonicalize().ok()?;
+    let root = dunce::canonicalize(root).ok()?;
+    let p = dunce::canonicalize(root.join(rp)).ok()?;
     (p.starts_with(&root) && p.is_file()).then_some(p)
 }
 
