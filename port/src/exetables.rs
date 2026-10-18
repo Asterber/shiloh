@@ -2,9 +2,9 @@
 //!
 //! The port keeps only each table's virtual address and row layout; the values (HDB object ids the developers listed
 //! in the exe's read-only data) come from the exe beside the opened `XFiles.hdb`. Two builds are mapped, identified by
-//! size, PE timestamp and a 64-bit FNV-1a of the whole file: the RU 1.00 exe (FileVersion 1.00.12, the traced one) and
+//! size, PE timestamp and a 64-bit FNV-1a of the whole file: the RU 1.00 exe (FileVersion 1.00.12, the traced one),
 //! the English DVD Edition's (FileVersion 2.05.00, H2300: the same tables, row for row, at other addresses — located
-//! statically, not traced). Any other exe or no exe at all gives empty tables: the features that read them (ING
+//! statically, not traced) and the German retail CD set's (FileVersion 1.00.19, H2320: likewise). Any other exe or no exe at all gives empty tables: the features that read them (ING
 //! records, media search, cheat codes, phone numbers and refusals, suicide notes, e-mail replies, volume bars, the
 //! media kinds of file extensions, the shootout's pick Views, the gun-hit layouts, the computer's lists, cursors, save
 //! slots, note days) do nothing, and one line says so on stderr.
@@ -18,6 +18,11 @@ const RU100_FNV: u64 = 0xed9a_5dbb_96ba_0e25;
 const ENDVD_SIZE: usize = 3_379_200;
 const ENDVD_TIMESTAMP: u32 = 0x378c_fe55;
 const ENDVD_FNV: u64 = 0x7752_e441_ea65_6257;
+/// German retail CD set `XFILES.EXE` (disc 1 `MININST/XFILES.EXE`, FileVersion 1.00.19, InternalName "Agrippa"; SHA-256
+/// d1cfec26…e1d6)
+const DE10019_SIZE: usize = 3_376_128;
+const DE10019_TIMESTAMP: u32 = 0x35ca_20b3;
+const DE10019_FNV: u64 = 0x9b3c_c4de_a058_48c8;
 
 /// A mapped PE32 image: image base + (rva, virtual size, raw size, raw offset) per section.
 pub struct Image<'a> {
@@ -116,6 +121,8 @@ pub enum Build {
     Ru100,
     /// the English DVD Edition, 2.05.00 (the RU addresses moved by [`EN_DVD_VA`])
     EnDvd,
+    /// the German retail CD set, 1.00.19 (the RU addresses moved by [`DE_10019_VA`])
+    De10019,
 }
 
 /// H2300 (static): RU 1.00 table address → the EN DVD Edition's. Each EN table holds the RU table's dwords unchanged
@@ -165,6 +172,56 @@ const EN_DVD_VA: &[(u32, u32)] = &[
     (0x6b1dd0, 0x6b6430), // MAIL_ROWS_PDA
 ];
 
+/// H2320 (static): RU 1.00 table address → the German 1.00.19 build's, found as [`EN_DVD_VA`] was (H2300). Every
+/// table's bytes (relocated string pointers compared by the strings they point to) occur once in the German exe, and
+/// the code that references it — the RU code (`r`) and / or the EN 2.05 code (`e`), relocated dwords and call / jump
+/// offsets masked — matches once in the German `.text` and names the same address. Where the EN code differs from
+/// the RU code the German code follows the EN one (the note pad's day-order table, H2302 / H2321). The `.data` tables
+/// all moved by +0x3030.
+const DE_10019_VA: &[(u32, u32)] = &[
+    (0x659ac0, 0x65be20), // ING_RECORDS (r e)
+    (0x658da8, 0x65b0e8), // MEDIA_KEYS (r e)
+    (0x6548d0, 0x656918), // CHEATS (r e)
+    (0x656040, 0x6580a0), // PHONES (r e)
+    (0x659a00, 0x65bd60), // SUICIDE_NOTES (r e)
+    (0x659f70, 0x65c2d0), // ING_REPLIES (r e)
+    (0x658de8, 0x65b128), // MEDIA_REPLIES (r e)
+    (0x658518, 0x65a848), // NOTE_REPLIES (e)
+    (0x6549a8, 0x6569f0), // MEL_SHOT_LAYOUTS (r e)
+    (0x6549a0, 0x6569e8), // SUICIDE_NOTE_LAYOUTS (r e)
+    (0x6599d0, 0x65bd30), // SMOL_PICK_VIEWS (r e)
+    (0x654c10, 0x656c68), // CURSORS (r e)
+    (0x65b768, 0x65dee8), // SAVE_SLOT_ITEMS (r e)
+    (0x65b778, 0x65def8), // LOAD_SLOT_ITEMS (r e)
+    (0x6584b8, 0x65a7e8), // NOTE_DAYS (e; read through a day-order table, 0x6b4a30, as in EN: H2321)
+    (0x658520, 0x65a850), // NOTE_KEYS (r e)
+    (0x658620, 0x65a950), // NOTE_DAY3_EXTRA (e)
+    (0x655fa0, 0x658000), // VOLUME_BARS (r e)
+    (0x659aa0, 0x65be00), // ING_VALUE_ITEMS / ING_VALUES (r e)
+    (0x659a80, 0x65bde0), // ING_LABEL_ITEMS / ING_LABELS (r e)
+    (0x6560e0, 0x658140), // PHONE_REFUSALS (r e)
+    (0x656100, 0x658160), // PHONE_LONG_DISTANCE (r e)
+    (0x65c380, 0x65eb18), // EXT_KINDS (r e; the same 45 extension strings)
+    (0x659a10, 0x65bd70), // ING_PHONES (r e)
+    (0x659a70, 0x65bdd0), // ING_PLATES (r e)
+    (0x657660, 0x659700), // SBASE_DOTS (r e)
+    (0x6581e0, 0x65a510), // PHOTO_SLOTS (r e)
+    (0x658628, 0x65a958), // NOTE_LETTERS (r e)
+    (0x6587e8, 0x65ab20), // RECIPIENTS (r e)
+    (0x6b1d40, 0x6b4d70), // ENCLOSURES (e; the same 9 name strings)
+    (0x6b1cf0, 0x6b4d20), // ENCLOSURE_EXT (no code reference in any build: its bytes, once, at the .data shift)
+    (0x6b1e30, 0x6b4e60), // ADDR_TO_BOX (r e)
+    (0x6b1e40, 0x6b4e70), // ADDR_CC_BOX (r e)
+    (0x6b1e4c, 0x6b4e7c), // ADDR_PDA_ONE (r e)
+    (0x6b1e50, 0x6b4e80), // ADDR_PDA_ROWS (r e)
+    (0x6b1e78, 0x6b4ea8), // ADDR_TO_ROWS (r e)
+    (0x6b1e90, 0x6b4ec0), // ADDR_TO_MARKS (r e)
+    (0x6b1ea8, 0x6b4ed8), // ADDR_CC_ROWS (r e)
+    (0x6b1ec0, 0x6b4ef0), // ADDR_CC_MARKS (r e)
+    (0x6b1d70, 0x6b4da0), // MAIL_ROWS_PC (r e)
+    (0x6b1dd0, 0x6b4e00), // MAIL_ROWS_PDA (r e)
+];
+
 /// H2301 (static): the EN build has no "Article" / "Field Notes" literals; its code shows an AssetRef's text instead
 /// (kind 0, a string of `XfilesT.dll`): these two
 const ENDVD_ARTICLE_SUBJECT_ASSET: u32 = 0x172a1;
@@ -176,6 +233,7 @@ impl Build {
         match self {
             Build::Ru100 => Some(ru),
             Build::EnDvd => EN_DVD_VA.iter().find(|&&(r, _)| r == ru).map(|&(_, e)| e),
+            Build::De10019 => DE_10019_VA.iter().find(|&&(r, _)| r == ru).map(|&(_, e)| e),
         }
     }
 }
@@ -188,8 +246,12 @@ pub fn identify(d: &[u8]) -> Result<Build, String> {
     if d.len() == ENDVD_SIZE && img.timestamp == ENDVD_TIMESTAMP && fnv1a(d) == ENDVD_FNV {
         return Ok(Build::EnDvd);
     }
+    if d.len() == DE10019_SIZE && img.timestamp == DE10019_TIMESTAMP && fnv1a(d) == DE10019_FNV {
+        return Ok(Build::De10019);
+    }
     Err(format!(
-        "unknown build (size {}, PE timestamp {:#x}, fnv {:#x}); only RU 1.00 and the EN DVD Edition are mapped",
+        "unknown build (size {}, PE timestamp {:#x}, fnv {:#x}); only RU 1.00, the EN DVD Edition and the German \
+         1.00.19 are mapped",
         d.len(),
         img.timestamp,
         fnv1a(d)
@@ -442,10 +504,13 @@ impl PcTables {
             .into_iter()
             .map(|p| img.img.cstr_at(p).map(|b| String::from_utf8_lossy(&b).into_owned() + &ext).ok_or_else(|| outside("ENCLOSURES")))
             .collect::<Result<_, _>>()?;
-        // H2301: a literal in RU 1.00, an AssetRef in the EN build
+        // H2301: a literal in RU 1.00, an AssetRef in the EN build; the German build's code pushes the same two
+        // AssetRef ids (H2322)
         let (article_subject, article_subject_asset, field_notes, field_notes_asset) = match img.build {
             Build::Ru100 => (text(ARTICLE_SUBJECT, "ARTICLE_SUBJECT")?, None, text(FIELD_NOTES, "FIELD_NOTES")?, None),
-            Build::EnDvd => (String::new(), Some(ENDVD_ARTICLE_SUBJECT_ASSET), String::new(), Some(ENDVD_FIELD_NOTES_ASSET)),
+            Build::EnDvd | Build::De10019 => {
+                (String::new(), Some(ENDVD_ARTICLE_SUBJECT_ASSET), String::new(), Some(ENDVD_FIELD_NOTES_ASSET))
+            }
         };
         let mail = |va: u32, what: &str| img.rows::<8>(va, 3, 32).ok_or_else(|| outside(what));
         Ok(PcTables {

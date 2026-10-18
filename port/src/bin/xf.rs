@@ -29,7 +29,7 @@
 //! and switch captions on (unless `--subtitles` says otherwise; error if the pack is missing), `auto` (default) = use
 //! `ru` when present, else `en`, else none; captions stay as the game has them (F3 / the game's preference), `off` = never.
 //!
-//! Game language (H1836, port feature): `--game-lang ru|en` (or `XF_GAME_LANG`; default: the game data's own, H2305) —
+//! Game language (H1836, port feature): `--game-lang ru|en|de` (or `XF_GAME_LANG`; default: the game data's own, H2305) —
 //! the voice-over, the movies and the game's own texts (dialogue lines, notes, documents, names) of the installed RU data
 //! or of an English data set laid over it, `--en-data DIR` (or `XF_EN_DATA`): the EN DVD Edition's disc root /
 //! `English/` dir, or an installed English game. The game logic stays the `--data` set's (saves, routes and the e2e are
@@ -137,7 +137,7 @@ struct Args {
     /// H1660 / H1661: how the program starts without `--load` — `--intro` (the window's default: the intro movies, then
     /// the main menu), `--skip-intro` (the main menu at once), `--new-game` (headless default: New Game at once)
     start: Option<xf::front::intro::Start>,
-    /// H1836: `--game-lang ru|en` (env XF_GAME_LANG; default: the game data's own language, H2305)
+    /// H1836: `--game-lang ru|en|de` (env XF_GAME_LANG; default: the game data's own language, H2305)
     game_lang: Option<xf::media::lang::GameLang>,
     /// H1836: `--en-data DIR` (env XF_EN_DATA): the English data set
     en_data: Vec<PathBuf>,
@@ -186,7 +186,7 @@ fn args() -> Args {
         start: None,
         game_lang: std::env::var("XF_GAME_LANG")
             .ok()
-            .map(|v| xf::media::lang::GameLang::parse(&v).unwrap_or_else(|| die("XF_GAME_LANG ru|en"))),
+            .map(|v| xf::media::lang::GameLang::parse(&v).unwrap_or_else(|| die("XF_GAME_LANG ru|en|de"))),
         en_data: xf::vfs::env_sources("XF_EN_DATA"),
         config: None,
         no_config: false,
@@ -246,7 +246,7 @@ fn args() -> Args {
             }
             "--saves" => a.saves = val().into(),
             "--game-lang" => {
-                let l = xf::media::lang::GameLang::parse(&val()).unwrap_or_else(|| die("--game-lang ru|en"));
+                let l = xf::media::lang::GameLang::parse(&val()).unwrap_or_else(|| die("--game-lang ru|en|de"));
                 a.game_lang = Some(l);
                 a.cli_settings.push(("game_lang", l.code().into()));
             }
@@ -289,7 +289,7 @@ fn args() -> Args {
                 std::process::exit(0);
             }
             "-h" | "--help" => {
-                eprintln!("usage: xf [--data DIR|IMAGE ...] [--cache DIR] [--trace T.jsonl] [--load SAVE.x] [--overlay] [--hyp] [--scale fsr|linear|nearest] [--sharpness STOPS] [--subtitles on|off|auto] [--subtitles-dir DIR] [--subs en|ru|off|auto] [--saves DIR] [--game-lang ru|en] [--en-data DIR|IMAGE ...] [--long-timers wine|nt] [--pause-when-minimised] [--intro | --skip-intro | --new-game] [--config FILE | --no-config] [--licenses] [PATH ...]\n       xf --frames N --dump DIR [--load SAVE.x --steps S] [--intro | --skip-intro | --new-game] [--trace T.jsonl | --route fo-009] [--every MS] [--play ASSET] [--layout LAYOUT] [--port-ui] [--settings-screen]\n\nkeys: Esc menu, F1 hotspots, F2 scaling, F3 captions, F4 game language, F10 settings, F11 full screen, Space / Enter end the media\nAlt keys (the original's): Alt+0..9 volume (0 mute, 9 full), Alt+A / M / R / T / V Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality Video,\n  Alt+C captions, Alt+P pause (any key resumes), Alt+S save screen, Alt+X exit, Shift+Alt+F FPS, Shift+Alt+H hotspots, Shift+Alt+I state box");
+                eprintln!("usage: xf [--data DIR|IMAGE ...] [--cache DIR] [--trace T.jsonl] [--load SAVE.x] [--overlay] [--hyp] [--scale fsr|linear|nearest] [--sharpness STOPS] [--subtitles on|off|auto] [--subtitles-dir DIR] [--subs en|ru|off|auto] [--saves DIR] [--game-lang ru|en|de] [--en-data DIR|IMAGE ...] [--long-timers wine|nt] [--pause-when-minimised] [--intro | --skip-intro | --new-game] [--config FILE | --no-config] [--licenses] [PATH ...]\n       xf --frames N --dump DIR [--load SAVE.x --steps S] [--intro | --skip-intro | --new-game] [--trace T.jsonl | --route fo-009] [--every MS] [--play ASSET] [--layout LAYOUT] [--port-ui] [--settings-screen]\n\nkeys: Esc menu, F1 hotspots, F2 scaling, F3 captions, F4 game language, F10 settings, F11 full screen, Space / Enter end the media\nAlt keys (the original's): Alt+0..9 volume (0 mute, 9 full), Alt+A / M / R / T / V Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality Video,\n  Alt+C captions, Alt+P pause (any key resumes), Alt+S save screen, Alt+X exit, Shift+Alt+F FPS, Shift+Alt+H hotspots, Shift+Alt+I state box");
                 std::process::exit(0);
             }
             // macOS adds -psn_... to programs started by the Finder

@@ -22,6 +22,8 @@ pub enum GameLang {
     Ru,
     /// the English data set (`--en-data DIR`)
     En,
+    /// the German retail CD set as the game data (H2323; never a data set laid over another)
+    De,
 }
 
 impl GameLang {
@@ -29,6 +31,7 @@ impl GameLang {
         match s.to_ascii_lowercase().as_str() {
             "ru" | "rus" | "russian" => Some(GameLang::Ru),
             "en" | "eng" | "english" => Some(GameLang::En),
+            "de" | "deu" | "ger" | "german" | "deutsch" => Some(GameLang::De),
             _ => None,
         }
     }
@@ -36,6 +39,7 @@ impl GameLang {
         match self {
             GameLang::Ru => "ru",
             GameLang::En => "en",
+            GameLang::De => "de",
         }
     }
 }
@@ -124,32 +128,55 @@ impl EnIndex {
     }
 }
 
-/// H2305 (port): the language of the game data the session runs on (`--data`): the exe beside the HDB tells (RU 1.00
-/// → Russian, the EN DVD Edition → English); an unknown exe → Russian when the `XfilesT.dll` strings hold Cyrillic,
-/// English when they hold none, Russian (the port's default) without strings.
+/// H2305 / H2329 (port): the language of the game data the session runs on (`--data`), by its `XfilesT.dll` string
+/// table: Cyrillic strings → Russian; else string 1091 (scGameLanguage) "german" → German; else English. The exe is not
+/// the sign: the English retail CDs carry the very exe (and HDB) of RU 1.00 (H2329), and the RU DLL keeps
+/// scGameLanguage "english". Without a string table: by the exe (EN DVD → English, German 1.00.19 → German, else
+/// Russian, the port's default). Cached per folder (read once).
 pub fn data_lang(h: &crate::hdb::Hdb, dir: &Path) -> GameLang {
     use crate::exetables::Build;
-    match h.exe.build {
-        Some(Build::Ru100) => GameLang::Ru,
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<PathBuf, Option<GameLang>>>> = std::sync::OnceLock::new();
+    let by_dll = *CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(dir.to_path_buf())
+        .or_insert_with(|| dll_lang(&crate::pe::text_dll_strings(dir)));
+    by_dll.unwrap_or(match h.exe.build {
         Some(Build::EnDvd) => GameLang::En,
-        None => {
-            let t = crate::pe::text_dll_strings(dir);
-            let cyr = t.values().any(|s| s.chars().any(|c| ('\u{410}'..='\u{44f}').contains(&c)));
-            if t.is_empty() || cyr {
-                GameLang::Ru
-            } else {
-                GameLang::En
-            }
-        }
+        Some(Build::De10019) => GameLang::De,
+        _ => GameLang::Ru,
+    })
+}
+
+/// [`data_lang`] from a string table alone (None: no strings)
+pub fn dll_lang(t: &HashMap<u32, String>) -> Option<GameLang> {
+    if t.is_empty() {
+        None
+    } else if t.values().any(|s| s.chars().any(|c| ('\u{410}'..='\u{44f}').contains(&c))) {
+        Some(GameLang::Ru)
+    } else if t.get(&1091).is_some_and(|s| s.trim().eq_ignore_ascii_case("german")) {
+        Some(GameLang::De)
+    } else {
+        Some(GameLang::En)
     }
 }
 
-/// The language of an HDB's own data by the exe beside it alone (no file reads; Russian unless the EN DVD Edition's)
+/// The language of an HDB's own data by the exe beside it alone (no file reads; Russian unless the EN DVD Edition's or
+/// the German build's)
 pub fn hdb_lang(h: &crate::hdb::Hdb) -> GameLang {
-    if h.exe.build == Some(crate::exetables::Build::EnDvd) {
-        GameLang::En
-    } else {
-        GameLang::Ru
+    match h.exe.build {
+        Some(crate::exetables::Build::EnDvd) => GameLang::En,
+        Some(crate::exetables::Build::De10019) => GameLang::De,
+        _ => GameLang::Ru,
+    }
+}
+
+impl GameLang {
+    /// H2306 / H2323: the code page of this language's text files (`XT/*.xtx`, the computer's files): cp1251 for
+    /// Russian, cp1252 for English and German
+    pub fn cp1252(self) -> bool {
+        self != GameLang::Ru
     }
 }
 
@@ -191,6 +218,15 @@ mod tests {
         assert_eq!(GameLang::parse("EN"), Some(GameLang::En));
         assert_eq!(GameLang::parse("ru"), Some(GameLang::Ru));
         assert_eq!(GameLang::parse("fr"), None);
+        assert_eq!(GameLang::parse("German"), Some(GameLang::De));
+        assert_eq!(GameLang::De.code(), "de");
+        assert!(GameLang::De.cp1252() && GameLang::En.cp1252() && !GameLang::Ru.cp1252());
+        // H2329: the string table decides — Cyrillic, then scGameLanguage (1091)
+        let t = |v: &[(u32, &str)]| v.iter().map(|&(k, s)| (k, s.to_string())).collect::<HashMap<u32, String>>();
+        assert_eq!(dll_lang(&t(&[])), None);
+        assert_eq!(dll_lang(&t(&[(1091, "english"), (5, "\u{416}")])), Some(GameLang::Ru));
+        assert_eq!(dll_lang(&t(&[(1091, "german")])), Some(GameLang::De));
+        assert_eq!(dll_lang(&t(&[(1091, "english")])), Some(GameLang::En));
     }
 
     /// The DVD layout: MININST first, then MEDINST, then the disc root.

@@ -131,7 +131,7 @@ pub const OPTIONS: &[Opt] = &[
     Opt {
         key: "game_lang",
         label: "Game language",
-        kind: Kind::List(&[("ru", "Russian (RU 1.00)"), ("en", "English (EN DVD)")]),
+        kind: Kind::List(&[("ru", "Russian (RU 1.00)"), ("en", "English (EN DVD)"), ("de", "German (DE CDs)")]),
         hint: "",
         fronts: Fronts::Both,
         web_kind: None,
@@ -436,7 +436,13 @@ impl Settings {
             "captions" => {
                 let on = self.captions().unwrap_or_else(|| s.r.w.closed_captioning());
                 s.r.set_closed_captioning(on);
-                Some(format!("captions {}", if on { "on" } else { "off" }))
+                let why = if on && s.no_subtitles(&crate::media::subs::packs_in(crate::media::pcmcache::dir().as_deref())) {
+                    " (H2323: the German movies carry no subtitles of their own, only a few English sound-effect \
+                     captions; English subtitles need an English pack, xf-prep --en-subs, or an English copy, --en-data)"
+                } else {
+                    ""
+                };
+                Some(format!("captions {}{why}", if on { "on" } else { "off" }))
             }
             "subs" => Some(match load_sub_pack(self.get("subs"), s) {
                 Ok(m) => m,
@@ -473,7 +479,7 @@ impl Settings {
             if (k == "subs" && keep_subs) || ok.contains(&self.get(k)) {
                 continue;
             }
-            let v = if k == "game_lang" { s.game_lang.code() } else { "auto" };
+            let v = if k == "game_lang" { s.game_lang.code() } else { ok[0] };
             let _ = self.set(k, v);
         }
     }
@@ -623,7 +629,12 @@ fn rows() -> Vec<Row> {
 /// ([`Session::game_langs`]) and the subtitle choices ([`Session::sub_langs`] of the cache's `packs`). A language without
 /// data is not offered; an option with a single value is not shown (the window's screen, the web dialog).
 pub fn choices(s: &Session, packs: &[&str]) -> Vec<(&'static str, Vec<&'static str>)> {
-    vec![("game_lang", s.game_langs()), ("subs", s.sub_langs(packs))]
+    let mut v = vec![("game_lang", s.game_langs()), ("subs", s.sub_langs(packs))];
+    // H2323: German data with nothing to show: no "Subtitles" option (the game's own preference stays as it is)
+    if s.no_subtitles(packs) {
+        v.push(("captions", vec!["game"]));
+    }
+    v
 }
 
 /// The window's settings screen: open / hovered row; the host owns the [`Settings`].

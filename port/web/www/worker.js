@@ -407,7 +407,7 @@ onmessage = (e) => {
     case 'volume': x.xf_audio(rate, m.v); break;
     case 'audio-latency': outLatency = m.s || 0; break;
     case 'long-timers': x.xf_long_timers(m.nt ? 1 : 0); break;
-    case 'game-lang': x.xf_game_lang(m.lang === 'en' ? 1 : 0); break;
+    case 'game-lang': x.xf_game_lang(m.lang === 'en' ? 1 : m.lang === 'de' ? 2 : 0); break;
     // H1734: the page imported slot files — the mirror and the engine's slot names read again
     case 'saves-reload':
       (saves === 'idb' ? idbLoad() : Promise.resolve())

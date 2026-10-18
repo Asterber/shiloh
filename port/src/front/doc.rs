@@ -225,17 +225,17 @@ pub fn decode_cp1252(b: &[u8]) -> String {
 pub fn decode_text(b: &[u8], lang: crate::media::lang::GameLang) -> String {
     match lang {
         crate::media::lang::GameLang::Ru => decode_cp1251(b),
-        crate::media::lang::GameLang::En => decode_cp1252(b),
+        crate::media::lang::GameLang::En | crate::media::lang::GameLang::De => decode_cp1252(b),
     }
 }
 
-/// Text of a text-file AssetRef (XT/*.xtx), decoded in the HDB's code page; None for other assets or a missing file.
+/// Text of a text-file AssetRef (XT/*.xtx), decoded in the data set's code page (H2329: by its string table); None for other assets or a missing file.
 pub fn xtx_text(lib: &MediaLib, h: &crate::hdb::Hdb, asset: u32) -> Option<String> {
     let clip = lib.resolve(h, asset)?;
     if !matches!(clip.ext().as_str(), "xtx" | "txt") {
         return None;
     }
-    Some(decode_text(&crate::io::read(&clip.file).ok()?, crate::media::lang::hdb_lang(h)))
+    Some(decode_text(&crate::io::read(&clip.file).ok()?, crate::media::lang::data_lang(h, &lib.dir)))
 }
 
 /// [`xtx_text`] in the session's game language (H1836: the English data set's XT file of the same name).

@@ -304,7 +304,9 @@ impl<'a> Session<'a> {
             (l, _) if l == self.data_lang => None,
             (GameLang::En, Some(en)) => Some(en.strings.clone()),
             (GameLang::En, None) => return Err("no English data set (xf --en-data DIR)".into()),
-            (GameLang::Ru, _) => return Err("the game data is English: there is no Russian data set".into()),
+            (l, _) => {
+                return Err(format!("there is no {} data set (the game data is {})", l.code(), self.data_lang.code()))
+            }
         };
         if self.game_lang != lang {
             self.log.push(format!("H1836: game language {}", lang.code()));
@@ -421,13 +423,31 @@ impl<'a> Session<'a> {
     /// English movies carry their own English captions (drawn while the captions are on, F3), and a Russian pack is not
     /// offered over them; `auto` always, `off` only beside a pack (without one both mean the movies' own captions, so
     /// the option has the single value `auto` and is not shown; the captions on / off stay the "Subtitles" option).
+    /// H2323: over German game data only the English pack (its movies carry no captions of their own but 37 English
+    /// sound-effect captions; the English cues follow the English speech, as over the RU dub).
     pub fn sub_langs(&self, packs: &[&str]) -> Vec<&'static str> {
-        let ru_data = self.data_lang == crate::media::lang::GameLang::Ru;
-        let offered: Vec<&'static str> = ["en", "ru"].into_iter().filter(|l| ru_data && packs.contains(l)).collect();
+        use crate::media::lang::GameLang;
+        let langs: &[&'static str] = match self.data_lang {
+            GameLang::Ru => &["en", "ru"],
+            GameLang::De => &["en"],
+            GameLang::En => &[],
+        };
+        let offered: Vec<&'static str> = langs.iter().copied().filter(|l| packs.contains(l)).collect();
         if offered.is_empty() {
             return vec!["auto"];
         }
         std::iter::once("auto").chain(offered).chain(std::iter::once("off")).collect()
+    }
+
+    /// H2323: whether this session has no subtitles to show — German game data (its movies carry no captions of their
+    /// own but a few English sound-effect lines), no English data set laid over it and no pack of `packs` offered
+    /// ([`Session::sub_langs`]). The settings then offer no "Subtitles" option, and switching the captions on says why
+    /// nothing shows.
+    pub fn no_subtitles(&self, packs: &[&str]) -> bool {
+        self.data_lang == crate::media::lang::GameLang::De
+            && self.en_data.is_none()
+            && self.sub_pack.is_none()
+            && self.sub_langs(packs) == ["auto"]
     }
 
     /// [`Session::reload`] up to the game's start: the new core on `gam`, not started yet (the caller runs

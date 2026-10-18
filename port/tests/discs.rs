@@ -113,6 +113,29 @@ fn folder_of_images() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// A folder of disc folders (the German CD set as `X-Files-DE/disk1/*.iso … disk7/*.iso`): the images one level down;
+/// a folder with neither game files nor images (here or below) says so.
+#[test]
+fn folder_of_disc_folders() {
+    let d = tmp("subfolders");
+    for (sub, name, img) in [("disk1", "cd 1.iso", disc1()), ("disk2", "cd 2.iso", disc2())] {
+        std::fs::create_dir_all(d.join(sub)).unwrap();
+        std::fs::write(d.join(sub).join(name), img).unwrap();
+    }
+    assert!(xf::vfs::needs_vfs(&[d.clone()]));
+    let ds = DataSet::open(&[d.clone()]).unwrap();
+    assert_eq!(ds.images.len(), 2);
+    assert_eq!(ds.read(Path::new("XFiles.hdb")).unwrap(), b"hdb-1");
+    assert_eq!(ds.read(Path::new("XV/2.XMV")).unwrap(), b"movie-2");
+    let none = d.join("none");
+    std::fs::create_dir_all(none.join("sub")).unwrap();
+    std::fs::write(none.join("sub/readme.txt"), b"x").unwrap();
+    assert!(xf::vfs::needs_vfs(&[none.clone()]));
+    let e = xf::vfs::data_root(&[none.clone()], &mut |_| {}).unwrap_err();
+    assert!(e.contains("no game files (XFiles.hdb) and no disc images") && e.contains("sub-folders"), "{e}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 /// A disc with two languages (the EN DVD's `English/` and `Francais/`, each with MININST): the English one only.
 #[test]
 fn one_language_per_disc() {

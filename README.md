@@ -35,9 +35,15 @@ distributes nothing of the game.
   fonts exist only inside its installer (`Setup.exe`); Shiloh reads them straight out of the installer archive, in
   memory, so nothing has to be installed first and nothing is written next to the image. The files it gets are
   identical to an installed Russian 1.00 copy. Checked without a window: the main menu and New Game with the opening.
-- The German retail release on 7 CDs (hybrid Mac/PC discs) reaches the main menu and the opening, from disc 1 alone
-  or all seven images. Its program is another build (1.00.19) whose tables Shiloh does not know yet, so the FBI
-  computer's searches, the phone, cheats and e-mail replies don't work there yet. Other CD releases are untested.
+- The German retail release on 7 CDs (hybrid Mac/PC discs) runs from its images: give all seven, or the folder that
+  holds them (one sub-folder per disc is fine). Its program is another build (1.00.19); Shiloh reads that build's
+  tables too, so New Game, the computer, phone, cheats and e-mail replies work as on the other releases. German is the
+  only language there. The German movies have no subtitles of their own: Settings offers English subtitles only if
+  you also have the English release (an English subtitle pack made with `xf-prep --en-subs`, or `--en-data`).
+  Checked without a window: New Game and the opening, every movie found on the seven discs.
+- The English retail CD release runs from its images too (played in a window from CD 1–2 only; all seven discs not
+  tested). Its program and database are the same files as the Russian 1.00 release's; Shiloh tells the language by
+  the game's text resources. Other CD releases are untested.
 - With the English DVD alone, English is the only language: the subtitles are the movies' own English captions
   (F3 or Settings → Subtitles: on; off by default, as in the game), no Russian options.
   With both an English and a Russian copy, Shiloh can switch the game language and show English subtitles over the

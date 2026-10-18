@@ -60,8 +60,8 @@ pub fn file_text(s: &Session, asset: u32) -> Option<String> {
             }
             let clip = s.lib.resolve(s.r.w.h, asset)?;
             let b = crate::io::read(&s.lang_file(&clip, s.game_lang)).ok()?;
-            // H2306: an English file is cp1252
-            let en = s.file_lang(s.game_lang) == crate::media::lang::GameLang::En;
+            // H2306 / H2323: an English or German file is cp1252
+            let en = s.file_lang(s.game_lang).cp1252();
             Some(pc::normalize(&if en { pc::cp1252(&b) } else { pc::cp1251(&b) }))
         })
         .clone()

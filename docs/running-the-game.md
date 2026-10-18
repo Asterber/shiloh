@@ -61,6 +61,7 @@ image, or a folder holding the images:
 cd port
 cargo run --release --bin xf -- --data ~/XFiles/CD1.iso --data ~/XFiles/CD2.iso ... --data ~/XFiles/CD7.iso
 cargo run --release --bin xf -- --data ~/XFiles/images                  # every .iso / .mdf / .bin / .img in it
+cargo run --release --bin xf -- --data ~/X-Files-DE                     # or in its sub-folders (disk1/*.iso … disk7/*.iso)
 cargo run --release --bin xf -- --data ../data/InstalledGame --data ~/XFiles/images   # install + discs
 cargo run --release --bin xf -- --data ~/en-dvd/XFILES1.mdf              # the EN DVD Edition alone
 cargo run --release --bin xf -- --data ../data/InstalledGame --en-data ~/en-dvd/XFILES1.mdf --game-lang en
@@ -106,9 +107,18 @@ and `xf-prep` (`--data`, `--en-subs IMAGE`) read them too.
 - **The German CD set** (7 CDs, volumes `XFILES1` … `XFILES7`): CD 1 holds the game's files as plain files in
   `MININST` (`XFILES.HDB`, `XFILES.GAM`, `XFILES.EXE`, the DLLs, the `.TTR` fonts, `X.PFF`, `XT`, `XS`, `XG`) and
   `MEDINST` (`NAVM.NMV`, part of `XV`); its `DATA1.CAB` (64 KB) holds only the installer's own files. Each CD has
-  its `NAVn.NMV` and movies at the root. Give all seven images (`--data CD1.iso … --data CD7.iso`); a missing disc is
-  named at start (its scenes stay black). Its `XFILES.EXE` (FileVersion 1.00.19) is a build whose tables the port does
-  not map yet, so the computer searches, phone, cheats and e-mail replies do nothing.
+  its `NAVn.NMV` and movies at the root. Give all seven images (`--data CD1.iso … --data CD7.iso`, or the folder that
+  holds them, also one folder per disc); a missing disc is named at start (its scenes stay black). Its `XFILES.EXE`
+  (FileVersion 1.00.19) is a third build; the port reads its tables at their own addresses (RE_NOTES H2320), so the
+  computer searches, phone, cheats, e-mail replies and the movie kinds work as on RU 1.00 (without them New Game's
+  opening stalled, H2324). German is then the only game language; texts are read as cp1252. The German movies carry
+  no subtitles of their own (37 keep a few English sound-effect lines, H2327): the settings offer English subtitles
+  only when the English pack is in the cache (`xf-prep --en-subs`) or an English copy is given (`--en-data`, game
+  language English), otherwise no "Subtitles" option. Like the EN 2.05 program, 1.00.19 reorders some note-pad days
+  (H2321); the port keeps the RU order.
+- **The English CD set** (hybrid discs as well): its `XFILES.EXE` and `XFILES.HDB` are byte for byte the RU 1.00 ones,
+  only the string table, movies and texts are English (H2329). The game language is taken from the string table, so
+  this runs as English data with the movies' own English captions. Checked with CD 1–2 only.
 - **The EN DVD Edition alone** (`--data XFILES1.mdf`): the game runs on the English data — its `XFILES.HDB` /
   `XFILES.GAM` and its program `XFILES.EXE`, a later build (FileVersion 2.05.00) than RU 1.00 whose tables the port
   reads at their own addresses (RE_NOTES H2300). English is then the only game language (no `--en-data`, F4 does

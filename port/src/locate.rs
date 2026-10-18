@@ -148,7 +148,7 @@ fn show(p: &[PathBuf]) -> String {
 pub const HELP: &str = "The X-Files Game data was not found. This port needs your own copy of the game:\n\
   - put the disc image(s) (.iso / .mdf / .bin / .img) or the installed game's folder next to the program, or\n\
   - drop the disc image or the game folder onto the program, or\n\
-  - start it with --data PATH (an installed game folder, a disc image, or a folder of disc images).\n\
+  - start it with --data PATH (an installed game folder, a disc image, or a folder of disc images, or of folders\n    holding them).\n\
 The window also asks for it when started with a double-click. Once found, the place is remembered.";
 
 /// Whether `d` is an installed game folder: it holds `XFiles.hdb` (any letter case).

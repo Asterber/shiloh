@@ -405,7 +405,7 @@ pub unsafe extern "C" fn xf_init(
     // H402: the save slots — xf-serve's /saves/ (or the browser's IndexedDB) through WebFs
     s.set_saves(xf::save::Slots::open(Path::new(SAVES)));
     // H2305: the packs on offer (none over English data: the movies' own captions); the game language = the data's
-    let packs = if s.data_lang == xf::media::lang::GameLang::Ru {
+    let packs = if s.data_lang != xf::media::lang::GameLang::En {
         let cache = Path::new("cache");
         xf::media::subs::LANGS.into_iter().filter(|l| xf::io::fs().size(&xf::media::subs::pack_path(cache, l)).is_ok()).collect()
     } else {
@@ -720,7 +720,11 @@ pub unsafe extern "C" fn xf_en_data(index: *const u8, index_len: usize) -> u32 {
 #[no_mangle]
 pub extern "C" fn xf_game_lang(lang: u32) -> u32 {
     use xf::media::lang::GameLang;
-    let l = if lang == 1 { GameLang::En } else { GameLang::Ru };
+    let l = match lang {
+        1 => GameLang::En,
+        2 => GameLang::De,
+        _ => GameLang::Ru,
+    };
     let mut ok = 0;
     with(|st| match st.s.set_lang(l) {
         Ok(()) => ok = 1,

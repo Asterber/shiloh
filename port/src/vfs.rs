@@ -198,10 +198,16 @@ impl DataSet {
                             .is_some_and(|x| IMAGE_EXTS.contains(&x.to_string_lossy().to_lowercase().as_str()))
                 })
                 .collect();
+            // a folder of disc folders (`X-Files-DE/disk1/*.iso … disk7/*.iso`): the images one level down, as the
+            // scan next to the program finds them
+            if roots.is_empty() && imgs.is_empty() {
+                imgs = sub_images(&d);
+            }
             imgs.sort();
             if roots.is_empty() && imgs.is_empty() {
                 return Err(format!(
-                    "{}: no game files and no disc images (.iso / .mdf / .bin / .img) here",
+                    "{}: no game files (XFiles.hdb) and no disc images (.iso / .mdf / .bin / .img) here or in its \
+                     sub-folders",
                     d.display()
                 ));
             }
@@ -607,6 +613,22 @@ fn iso_roots(img: &Image) -> Vec<(usize, String)> {
     out
 }
 
+/// The disc image files in the direct sub-folders of `d` (hidden folders left out).
+fn sub_images(d: &Path) -> Vec<PathBuf> {
+    let is_img = |p: &Path| {
+        p.is_file() && p.extension().is_some_and(|x| IMAGE_EXTS.contains(&x.to_string_lossy().to_lowercase().as_str()))
+    };
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+        if e.file_name().to_string_lossy().starts_with('.') || !e.path().is_dir() {
+            continue;
+        }
+        out.extend(std::fs::read_dir(e.path()).into_iter().flatten().flatten().map(|f| f.path()).filter(|p| is_img(p)));
+    }
+    out.sort();
+    out
+}
+
 /// The game roots of a real directory (canonical paths), the directory itself first when it is one.
 fn dir_roots(d: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
@@ -727,18 +749,14 @@ pub fn install() -> bool {
     ok
 }
 
-/// Whether the data sources need the merged view: more than one source, an image file, or a folder holding images
-/// but no game files of its own. A single installed folder is read directly, as before.
+/// Whether the data sources need the merged view: more than one source, an image file, or a folder that is not an
+/// installed game itself (images in it or in its sub-folders, a copy of a disc — or nothing, which [`DataSet::open`]
+/// then reports). A single installed folder is read directly, as before.
 pub fn needs_vfs(sources: &[PathBuf]) -> bool {
     match sources {
         [one] if one.is_dir() => {
-            let has_img = std::fs::read_dir(one).into_iter().flatten().flatten().any(|e| {
-                e.path().is_file()
-                    && e.path()
-                        .extension()
-                        .is_some_and(|x| IMAGE_EXTS.contains(&x.to_string_lossy().to_lowercase().as_str()))
-            });
-            has_img && !dir_roots(one).first().is_some_and(|r| dunce::canonicalize(one).is_ok_and(|c| &c == r))
+            let Ok(c) = dunce::canonicalize(one) else { return true };
+            dir_roots(&c).first() != Some(&c)
         }
         _ => true,
     }

@@ -2,6 +2,20 @@
 
 Each release has a section `## X.Y.Z`; `tools/release/release.sh` takes the release notes from it.
 
+## 0.3.0
+
+- The German 7-CD release: Shiloh now knows its program build (1.00.19). A complete playthrough on it hasn't been
+  done yet. Before, after New Game the
+  opening's movies ran one after another instead of together, so for a long time nothing seemed to happen (likely
+  also why some movies seemed missing), and the computer searches, phone, cheats and e-mail replies did nothing.
+- German game data: German is the only game language, its texts show their umlauts. Its movies carry no subtitles,
+  so Settings no longer shows a Subtitles switch that does nothing; with an English subtitle pack (or an English copy
+  given with `--en-data`) English subtitles are offered.
+- The English retail CDs are recognised as English (their program is the same file as the Russian release's):
+  English texts are no longer decoded as Russian, and no Russian subtitle pack is put over them.
+- `--data FOLDER` also finds disc images in the folder's sub-folders (e.g. `disk1/*.iso … disk7/*.iso`), and says
+  clearly when there are neither game files nor disc images.
+
 ## 0.2.1
 
 - Hybrid Mac/PC CDs no longer end in a black screen after the opening movie. Each file on such discs also has a Mac
