@@ -71,7 +71,10 @@
 //! The original's Alt hotkeys (H1868 / H2060–H2068, front::altkeys): Alt+0…9 volume (0 = mute, 9 = full; the settings'
 //! volume), Alt+A / M / R / T / V Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality
 //! Video on / off, Alt+C captions, Alt+P pause (any key resumes), Alt+S save screen, Alt+X exit, Shift+Alt+F FPS counter,
-//! Shift+Alt+H hotspots (= F1), Shift+Alt+I the state box (CurrNode / Asta / Loss / Paranoia / XTrack). The window is resizable (2× at start);
+//! Shift+Alt+H hotspots (= F1), Shift+Alt+I the state box (CurrNode / Asta / Loss / Paranoia / XTrack).
+//! Controller (H2410, front::pad; settings `pad` free / centred / off, `pad_speed`): left stick pointer, D-pad / right
+//! stick the next click target that way, LB / RB previous / next target, A / B left / right button, X the inventory
+//! strip and back, Y = F1, Start = Esc, Back = F10. The window is resizable (2× at start);
 //! the picture keeps its 4:3 aspect (black bars; clicks on the bars go nowhere). Without OpenGL 3.3 the window falls
 //! back to the SDL renderer (linear only). `--trace` takes from a trace of the original the inputs the core cannot produce yet: values of
 //! conditions on system values; in headless mode also the user's clicks, timers and registrations (front::trace_route).
@@ -295,7 +298,7 @@ fn args() -> Args {
                 std::process::exit(0);
             }
             "-h" | "--help" => {
-                eprintln!("usage: xf [--data DIR|IMAGE ...] [--cache DIR] [--trace T.jsonl] [--load SAVE.x] [--overlay] [--hyp] [--scale fsr|linear|nearest] [--sharpness STOPS] [--subtitles on|off|auto] [--subtitles-dir DIR] [--subs en|ru|off|auto] [--saves DIR] [--game-lang ru|en|de|fr] [--en-data DIR|IMAGE ...] [--long-timers wine|nt] [--pause-when-minimised] [--intro | --skip-intro | --new-game] [--config FILE | --no-config] [--licenses] [PATH ...]\n       xf --frames N --dump DIR [--load SAVE.x --steps S] [--intro | --skip-intro | --new-game] [--trace T.jsonl | --route fo-009] [--every MS] [--play ASSET] [--layout LAYOUT] [--port-ui] [--settings-screen]\n\nkeys: Esc menu, F1 hotspots, F2 scaling, F3 captions, F4 game language, F10 settings, F11 full screen, Space / Enter end the media\nAlt keys (the original's): Alt+0..9 volume (0 mute, 9 full), Alt+A / M / R / T / V Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality Video,\n  Alt+C captions, Alt+P pause (any key resumes), Alt+S save screen, Alt+X exit, Shift+Alt+F FPS, Shift+Alt+H hotspots, Shift+Alt+I state box");
+                eprintln!("usage: xf [--data DIR|IMAGE ...] [--cache DIR] [--trace T.jsonl] [--load SAVE.x] [--overlay] [--hyp] [--scale fsr|linear|nearest] [--sharpness STOPS] [--subtitles on|off|auto] [--subtitles-dir DIR] [--subs en|ru|off|auto] [--saves DIR] [--game-lang ru|en|de|fr] [--en-data DIR|IMAGE ...] [--long-timers wine|nt] [--pause-when-minimised] [--intro | --skip-intro | --new-game] [--config FILE | --no-config] [--licenses] [PATH ...]\n       xf --frames N --dump DIR [--load SAVE.x --steps S] [--intro | --skip-intro | --new-game] [--trace T.jsonl | --route fo-009] [--every MS] [--play ASSET] [--layout LAYOUT] [--port-ui] [--settings-screen]\n\nkeys: Esc menu, F1 hotspots, F2 scaling, F3 captions, F4 game language, F10 settings, F11 full screen, Space / Enter end the media\nAlt keys (the original's): Alt+0..9 volume (0 mute, 9 full), Alt+A / M / R / T / V Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality Video,\n  Alt+C captions, Alt+P pause (any key resumes), Alt+S save screen, Alt+X exit, Shift+Alt+F FPS, Shift+Alt+H hotspots, Shift+Alt+I state box\ncontroller: left stick pointer, D-pad / right stick next target, LB / RB previous / next target, A / B left / right click,\n  X inventory strip, Y hotspots, Start menu, Back settings (F10: Controller free / centred / off, Pointer speed)");
                 std::process::exit(0);
             }
             // macOS adds -psn_... to programs started by the Finder
@@ -937,6 +940,163 @@ fn alt_out(r: front::altkeys::AltOut, st: &mut WinSettings, s: &mut Session, out
     false
 }
 
+/// Pointer input at a picture point (None = off the picture): from the mouse, or the controller (H2410).
+#[derive(Clone, Copy, Debug)]
+enum Ptr {
+    Move(Option<(i32, i32)>),
+    Down(front::host::Button, Option<(i32, i32)>),
+    Up(front::host::Button, Option<(i32, i32)>),
+}
+
+fn button_of(b: sdl2::mouse::MouseButton) -> front::host::Button {
+    if b == sdl2::mouse::MouseButton::Left { front::host::Button::Left } else { front::host::Button::Right }
+}
+
+/// A pointer input to the settings screen (H1751) while it shows, else to the game (the menu screen's settings button
+/// first). Returns the pointer to show after a move.
+fn pointer(
+    p: Ptr,
+    ui: &mut front::settings::SettingsUi,
+    st: &mut WinSettings,
+    s: &mut Session,
+    out: &mut dyn Present,
+    menu_hover: &mut bool,
+) -> front::host::Pointer {
+    use front::host::{Button, Pointer};
+    use front::settings::UiClick;
+    if ui.open {
+        match p {
+            Ptr::Down(Button::Left, at) => {
+                let p = at.unwrap_or((-1, -1));
+                if let Some(UiClick::Changed(k)) = ui.click(p.0, p.1, &mut st.cur) {
+                    setting_changed(k, st, s, out);
+                }
+            }
+            Ptr::Up(Button::Left, _) => ui.release(),
+            Ptr::Move(at) => {
+                let p = at.unwrap_or((-1, -1));
+                if let Some(UiClick::Changed(k)) = ui.motion(p.0, p.1, &mut st.cur) {
+                    setting_changed(k, st, s, out);
+                }
+                return if ui.clickable(p.0, p.1) { Pointer::Hand } else { Pointer::Arrow };
+            }
+            _ => {}
+        }
+        return Pointer::Arrow;
+    }
+    match p {
+        // H1751: the "Port settings" button on the game's menu screen (under Quit)
+        Ptr::Down(Button::Left, Some((x, y))) if s.r.menu_open && front::settings::menu_button_at(x, y) => {
+            *ui = front::settings::SettingsUi::opened(s);
+        }
+        // right button while a video plays skips it, a left click is ignored (H322): front::host::button
+        Ptr::Down(b, at) => {
+            if let Some(l) = front::host::button(s, b, at) {
+                eprintln!("{l}");
+            }
+        }
+        // C107: the left button's up — a dragged IdeaIcon is dropped there (its answer plays on the icon)
+        Ptr::Up(b, at) => {
+            if let Some(l) = front::host::release(s, b, at) {
+                eprintln!("{l}");
+            }
+        }
+        // H307 / H331: the game's own cursor (or its Win32 crosshair) is drawn into the frame wherever the pointer is
+        // over the picture; the system one only outside it
+        Ptr::Move(at) => {
+            *menu_hover = s.r.menu_open && at.is_some_and(|(x, y)| front::settings::menu_button_at(x, y));
+            return if *menu_hover { Pointer::Hand } else { front::host::motion(s, at) };
+        }
+    }
+    Pointer::Arrow
+}
+
+/// H2410: one controller output — the pointer's move / buttons as the mouse's ([`pointer`]), its keys as key presses
+/// (pushed to SDL's queue: they take the keyboard's own path). Returns the pointer shape after a move.
+#[allow(clippy::too_many_arguments)]
+fn pad_out(
+    o: front::pad::PadOut,
+    pad: &front::pad::Pad,
+    ui: &mut front::settings::SettingsUi,
+    st: &mut WinSettings,
+    s: &mut Session,
+    out: &mut dyn Present,
+    menu_hover: &mut bool,
+    sdl: &sdl2::Sdl,
+) -> Option<front::host::Pointer> {
+    use front::pad::{PadKey, PadOut};
+    use sdl2::keyboard::Keycode;
+    let at = Some(pad.point());
+    match o {
+        PadOut::Move(x, y) => {
+            sdl.mouse().show_cursor(false);
+            return Some(pointer(Ptr::Move(Some((x, y))), ui, st, s, out, menu_hover));
+        }
+        PadOut::Down(b) => {
+            pointer(Ptr::Down(b, at), ui, st, s, out, menu_hover);
+        }
+        PadOut::Up(b) => {
+            pointer(Ptr::Up(b, at), ui, st, s, out, menu_hover);
+        }
+        PadOut::Key(k) => {
+            let key = match k {
+                PadKey::Menu => Keycode::Escape,
+                PadKey::Settings => Keycode::F10,
+                PadKey::Hotspots => Keycode::F1,
+            };
+            let ev = sdl2::event::Event::KeyDown {
+                timestamp: 0,
+                window_id: out.window().id(),
+                keycode: Some(key),
+                scancode: sdl2::keyboard::Scancode::from_keycode(key),
+                keymod: sdl2::keyboard::Mod::NOMOD,
+                repeat: false,
+            };
+            if let Err(e) = sdl.event().and_then(|q| q.push_event(ev)) {
+                eprintln!("xf: controller key: {e}");
+            }
+        }
+    }
+    None
+}
+
+/// H2410: the controller's state now.
+fn read_pad(c: &sdl2::controller::GameController) -> front::pad::PadIn {
+    use front::pad as p;
+    use sdl2::controller::{Axis, Button as B};
+    let ax = |a: Axis| c.axis(a) as f32 / 32767.0;
+    let mut buttons = 0;
+    for (b, bit) in [
+        (B::A, p::A),
+        (B::B, p::B),
+        (B::X, p::X),
+        (B::Y, p::Y),
+        (B::LeftShoulder, p::LB),
+        (B::RightShoulder, p::RB),
+        (B::Back, p::BACK),
+        (B::Start, p::START),
+        (B::LeftStick, p::L3),
+        (B::RightStick, p::R3),
+        (B::DPadUp, p::UP),
+        (B::DPadDown, p::DOWN),
+        (B::DPadLeft, p::LEFT),
+        (B::DPadRight, p::RIGHT),
+    ] {
+        if c.button(b) {
+            buttons |= bit;
+        }
+    }
+    p::PadIn {
+        lx: ax(Axis::LeftX),
+        ly: ax(Axis::LeftY),
+        rx: ax(Axis::RightX),
+        ry: ax(Axis::RightY),
+        lt: ax(Axis::TriggerLeft),
+        rt: ax(Axis::TriggerRight),
+        buttons,
+    }
+}
+
 fn run_window(s: &mut Session, sdl: &sdl2::Sdl, out: &mut dyn Present, a: &Args, st: &mut WinSettings) {
     let (quit_after, load) = (a.quit_after, a.load.is_some());
     use sdl2::event::Event;
@@ -1007,6 +1167,14 @@ fn run_window(s: &mut Session, sdl: &sdl2::Sdl, out: &mut dyn Present, a: &Args,
     let start = Instant::now();
     let mut shown_lines: Vec<(u32, [i16; 4], String)> = Vec::new();
     let mut minimised = false;
+    // H2410: the controllers (SDL's GameController: Xbox / PlayStation pads, the Steam Deck's controls; SDL's own
+    // mapping database), the one used last, and the pad's pointer model
+    let mut pads: (Option<sdl2::GameControllerSubsystem>, Vec<sdl2::controller::GameController>) =
+        (sdl.game_controller().map_err(|e| eprintln!("xf: no controller support: {e}")).ok(), Vec::new());
+    let mut active_pad: Option<u32> = None;
+    let mut pad = front::pad::Pad::default();
+    let mut pad_at = Instant::now();
+    let mut pad_shape = front::host::Pointer::Arrow;
     'main: loop {
         if quit_after.is_some_and(|q| start.elapsed().as_millis() as u64 >= q) {
             eprintln!("quit after {} ms: view {:x?}, transitions {}", start.elapsed().as_millis(), s.r.w.view, s.r.transitions.len());
@@ -1014,29 +1182,67 @@ fn run_window(s: &mut Session, sdl: &sdl2::Sdl, out: &mut dyn Present, a: &Args,
         }
         for e in events.poll_iter() {
             use sdl2::event::WindowEvent;
+            // the mouse's pointer input (the controller makes the same, front::pad / H2410)
+            let ptr = match e {
+                Event::MouseMotion { x, y, .. } => Some(Ptr::Move(out.to_picture(x, y))),
+                Event::MouseButtonDown { mouse_btn: b @ (MouseButton::Left | MouseButton::Right), x, y, .. } => {
+                    Some(Ptr::Down(button_of(b), out.to_picture(x, y)))
+                }
+                Event::MouseButtonUp { mouse_btn: b @ (MouseButton::Left | MouseButton::Right), x, y, .. } => {
+                    Some(Ptr::Up(button_of(b), out.to_picture(x, y)))
+                }
+                _ => None,
+            };
+            if let Some(p) = ptr {
+                if let Ptr::Move(Some(at)) = p {
+                    pad.mouse_moved(at);
+                }
+                let shape = pointer(p, &mut ui, st, s, out, &mut menu_hover);
+                if let Ptr::Move(_) = p {
+                    sdl.mouse().show_cursor(shape != front::host::Pointer::Hidden);
+                    if let Some(c) = if shape == front::host::Pointer::Hand { &hand } else { &arrow } {
+                        c.set();
+                    }
+                }
+                continue;
+            }
+            // H2410: a controller plugged in / out, the one used last is the one read
+            match e {
+                Event::ControllerDeviceAdded { which, .. } => {
+                    if let Some(c) = pads.0.as_ref().and_then(|g| g.open(which).map_err(|e| eprintln!("xf: controller: {e}")).ok()) {
+                        eprintln!("xf: controller {} ({}): left stick pointer, A / B click, D-pad next target (F10: Controller)", c.name(), c.instance_id());
+                        pads.1.push(c);
+                    }
+                    continue;
+                }
+                Event::ControllerDeviceRemoved { which, .. } => {
+                    pads.1.retain(|c| c.instance_id() != which);
+                    if active_pad == Some(which) {
+                        active_pad = None;
+                        for o in pad.release_all() {
+                            pad_out(o, &pad, &mut ui, st, s, out, &mut menu_hover, &sdl);
+                        }
+                    }
+                    continue;
+                }
+                Event::ControllerButtonDown { which, .. } => {
+                    active_pad = Some(which);
+                    continue;
+                }
+                Event::ControllerAxisMotion { which, value, .. } => {
+                    if (value as i32).abs() > 12000 {
+                        active_pad = Some(which);
+                    }
+                    continue;
+                }
+                Event::ControllerButtonUp { .. } => continue,
+                _ => {}
+            }
             // the settings screen (H1751) takes every input while it shows
             if ui.open {
                 match e {
                     Event::Quit { .. } => break 'main,
                     Event::KeyDown { keycode: Some(Keycode::Escape | Keycode::F10), .. } => ui.open = false,
-                    Event::MouseButtonDown { mouse_btn: MouseButton::Left, x, y, .. } => {
-                        let p = out.to_picture(x, y).unwrap_or((-1, -1));
-                        match ui.click(p.0, p.1, &mut st.cur) {
-                            Some(front::settings::UiClick::Changed(k)) => setting_changed(k, st, s, out),
-                            _ => {}
-                        }
-                    }
-                    Event::MouseButtonUp { mouse_btn: MouseButton::Left, .. } => ui.release(),
-                    Event::MouseMotion { x, y, .. } => {
-                        let p = out.to_picture(x, y).unwrap_or((-1, -1));
-                        if let Some(front::settings::UiClick::Changed(k)) = ui.motion(p.0, p.1, &mut st.cur) {
-                            setting_changed(k, st, s, out);
-                        }
-                        sdl.mouse().show_cursor(true);
-                        if let Some(c) = if ui.clickable(p.0, p.1) { &hand } else { &arrow } {
-                            c.set();
-                        }
-                    }
                     _ => {}
                 }
                 continue;
@@ -1067,12 +1273,6 @@ fn run_window(s: &mut Session, sdl: &sdl2::Sdl, out: &mut dyn Present, a: &Args,
                 Event::KeyDown { keycode: Some(Keycode::F10), .. } => {
                     ui = front::settings::SettingsUi::opened(s);
                     sdl.mouse().show_cursor(true);
-                }
-                // H1751: the "Port settings" button on the game's menu screen (under Quit)
-                Event::MouseButtonDown { mouse_btn: MouseButton::Left, x, y, .. }
-                    if s.r.menu_open && out.to_picture(x, y).is_some_and(|(x, y)| front::settings::menu_button_at(x, y)) =>
-                {
-                    ui = front::settings::SettingsUi::opened(s);
                 }
                 // Esc = the game's menu (H169 / H404); on the save screens the slot item's key (H403)
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => eprintln!("{}", front::host::key(s, 0x1b)),
@@ -1134,20 +1334,6 @@ fn run_window(s: &mut Session, sdl: &sdl2::Sdl, out: &mut dyn Present, a: &Args,
                         eprintln!("{}", front::host::key(s, code));
                     }
                 }
-                // right button while a video plays skips it, a left click is ignored (H322): front::host::button
-                Event::MouseButtonDown { mouse_btn: b @ (MouseButton::Left | MouseButton::Right), x, y, .. } => {
-                    let b = if b == MouseButton::Left { front::host::Button::Left } else { front::host::Button::Right };
-                    if let Some(l) = front::host::button(s, b, out.to_picture(x, y)) {
-                        eprintln!("{l}");
-                    }
-                }
-                // C107: the left button's up — a dragged IdeaIcon is dropped there (its answer plays on the icon)
-                Event::MouseButtonUp { mouse_btn: b @ (MouseButton::Left | MouseButton::Right), x, y, .. } => {
-                    let b = if b == MouseButton::Left { front::host::Button::Left } else { front::host::Button::Right };
-                    if let Some(l) = front::host::release(s, b, out.to_picture(x, y)) {
-                        eprintln!("{l}");
-                    }
-                }
                 // H1815 (port choice): the wheel scrolls the dialogue box / the computer's text under the pointer
                 Event::MouseWheel { y, direction, mouse_x, mouse_y, .. } => {
                     let y = if direction == sdl2::mouse::MouseWheelDirection::Flipped { -y } else { y };
@@ -1155,18 +1341,25 @@ fn run_window(s: &mut Session, sdl: &sdl2::Sdl, out: &mut dyn Present, a: &Args,
                         eprintln!("{l}");
                     }
                 }
-                Event::MouseMotion { x, y, .. } => {
-                    // H307 / H331: the game's own cursor (or its Win32 crosshair) is drawn into the frame wherever the
-                    // pointer is over the picture; the system one only outside it
-                    let at = out.to_picture(x, y);
-                    menu_hover = s.r.menu_open && at.is_some_and(|(x, y)| front::settings::menu_button_at(x, y));
-                    let p = if menu_hover { front::host::Pointer::Hand } else { front::host::motion(s, at) };
-                    sdl.mouse().show_cursor(p != front::host::Pointer::Hidden);
-                    if let Some(c) = if p == front::host::Pointer::Hand { &hand } else { &arrow } {
-                        c.set();
-                    }
-                }
                 _ => {}
+            }
+        }
+        // H2410: the controller (settings `pad`): its pointer moves and buttons as the mouse's
+        let pad_now = Instant::now();
+        let pad_dt = pad_now.duration_since(pad_at).as_millis() as u64;
+        pad_at = pad_now;
+        let cfg = xf::front::pad::PadCfg::from_settings(&st.cur);
+        let inp = match (cfg, active_pad.and_then(|id| pads.1.iter().find(|c| c.instance_id() == id))) {
+            (Some(_), Some(c)) => read_pad(c),
+            _ => Default::default(),
+        };
+        let outs = match cfg {
+            Some(cfg) => pad.update(&inp, pad_dt, &cfg, &mut || if ui.open { ui.targets() } else { front::pad::targets(s) }),
+            None => pad.release_all(),
+        };
+        for o in outs {
+            if let Some(k) = pad_out(o, &pad, &mut ui, st, s, out, &mut menu_hover, &sdl) {
+                pad_shape = k;
             }
         }
         if minimised {
@@ -1198,14 +1391,24 @@ fn run_window(s: &mut Session, sdl: &sdl2::Sdl, out: &mut dyn Present, a: &Args,
             // H406: the game's Volume preference scales the settings' volume
             m.volume = st.cur.volume() as f32 / 100.0 * front::host::volume(s);
         }
+        // H2410: the pad's pointer where no cursor of the game is drawn (the menu screen, the settings, the box)
+        let pad_pointer = |fb: &mut Vec<u8>, s: &Session, ui_open: bool| {
+            if pad.driving && (ui_open || !front::host::game_cursor_shown(s)) {
+                let (x, y) = pad.point();
+                front::pad::draw_pointer(fb, x, y, pad_shape == front::host::Pointer::Hand);
+            }
+        };
         if ui.open {
-            out.show(&ui.draw(&frame, &st.cur));
+            let mut fb = ui.draw(&frame, &st.cur);
+            pad_pointer(&mut fb, s, true);
+            out.show(&fb);
         } else {
             frame = s.render();
             let mut fb = frame.clone();
             if s.r.menu_open {
                 front::settings::draw_menu_button(&mut fb, menu_hover);
             }
+            pad_pointer(&mut fb, s, false);
             out.show(&fb);
         }
         if title_view != s.r.w.view {

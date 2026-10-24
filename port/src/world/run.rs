@@ -1636,10 +1636,17 @@ impl<'a> Runner<'a> {
 
     pub fn hit(&self, x: i32, y: i32) -> Option<Clickable> {
         self.last_hit.set(Some((x, y))); // H2170: the camera's shot needs the point
+        let list = self.clickables();
+        self.hit_in(&list, x, y).copied()
+    }
+
+    /// [`Runner::hit`] over a list [`Runner::clickables`] gave (one list, many points: the controller's snap targets,
+    /// front::pad), without noting the point for the camera.
+    pub fn hit_in<'c>(&self, list: &'c [Clickable], x: i32, y: i32) -> Option<&'c Clickable> {
         // H130: CharViews / Explorables / nav-hotspots are tested only when the point's y is inside the View rect (top
         // 90, bottom 330)
         let band = !self.w.rules.h130_hit_chain || (VIEW_TOP..VIEW_BOTTOM).contains(&y);
-        self.clickables().into_iter().find(|c| {
+        list.iter().find(|c| {
             let [x1, y1, x2, y2] = c.rect.map(|v| v as i32);
             let in_band = match c.cls {
                 class::INTERFACE_ITEM | class::CONVERSATION | class::CONVERSATION_LIST => true,

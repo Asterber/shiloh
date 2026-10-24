@@ -123,6 +123,13 @@
       <tr><td>F10</td><td>settings</td></tr>
       <tr><td>Alt+Enter</td><td>full screen on / off</td></tr>
       <tr><td>letters, digits</td><td>typing (save names, the FBI computer)</td></tr>
+      <tr><td colspan="2"><b>Controller</b> (Xbox / PlayStation pad, Steam Deck)</td></tr>
+      <tr><td>left stick</td><td>pointer (a trigger held: slower); the settings' "centred" mode rests it at the picture's centre</td></tr>
+      <tr><td>D-pad, right stick</td><td>jump to the next thing to click in that direction</td></tr>
+      <tr><td>LB / RB</td><td>previous / next thing to click</td></tr>
+      <tr><td>A / B</td><td>left / right click (B skips a video)</td></tr>
+      <tr><td>X</td><td>to the inventory strip and back</td></tr>
+      <tr><td>Y / Start / Back</td><td>hotspots (F1) / the game's menu (Esc) / settings (F10)</td></tr>
       <tr><td colspan="2"><b>The original's Alt keys</b> (Option on a Mac)</td></tr>
       <tr><td>Alt+0 … Alt+9</td><td>volume (0 = mute, 9 = full)</td></tr>
       <tr><td>Alt+A / M / R / T / V</td><td>Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality Video on / off</td></tr>
@@ -149,6 +156,8 @@
       <tr title="Timers longer than 65 s (the Gordon's Hauling bomb). Wine: never fire, as the original under Wine / Windows 9x (no bomb game over). NT: fire, as on Windows NT (the bomb ends the game 120 s after the manifest)."><td>Long timers</td><td><select data-key="long_timers"><option value="wine">Wine / 9x</option><option value="nt">Windows NT</option></select></td><td class="hint"></td></tr>
       <tr><td>Show hotspots</td><td><select data-key="overlay"><option value="off">off</option><option value="on">on</option></select></td><td class="hint">F1, Shift+Alt+H</td></tr>
       <tr title="on: a hidden tab pauses the game (its clock, timers and sound stop; no CPU). off: the game runs on while the tab is hidden (nothing is drawn; the sound plays)."><td>Pause when hidden</td><td><select data-key="pause_hidden"><option value="on">on</option><option value="off">off</option></select></td><td class="hint"></td></tr>
+      <tr title="A gamepad: the left stick moves the pointer (free), or places it around the picture's centre and lets it glide back when released (centred, as the game's PlayStation version)."><td>Controller</td><td><select data-key="pad"><option value="free">free pointer</option><option value="centred">centred pointer (PS1)</option></select></td><td class="hint"></td></tr>
+      <tr title="The free pointer's speed; holding a trigger slows it for precision."><td>Pointer speed</td><td><select data-key="pad_speed"><option value="50">slow</option><option value="75">slower</option><option value="100">normal</option><option value="150">faster</option><option value="200">fast</option></select></td><td class="hint"></td></tr>
     </table>
     <div class="preview">
       <figure id="pv-near-f"><figcaption>pixelated</figcaption><canvas id="pv-near" width="80" height="50"></canvas></figure>

@@ -2,6 +2,15 @@
 
 Each release has a section `## X.Y.Z`; `tools/release/release.sh` takes the release notes from it.
 
+## 0.3.4
+
+- Controller support: Xbox and PlayStation pads and the Steam Deck work in the window and in the browser. The left
+  stick moves the pointer, the D-pad (or the right stick) jumps to the next thing you can click, A / B are the left /
+  right click, X goes to the inventory, Y shows the hotspots, Start opens the game's menu, Back the settings. Settings →
+  Controller offers a free pointer or a centred one as on the PlayStation version (it rests at the centre of the scene,
+  reaches the whole picture and springs back), and Pointer speed sets how fast it moves. Checked with a DualShock 4 in
+  the window and in Chrome; Firefox on macOS gets no input from a DualShock 4 over Bluetooth.
+
 ## 0.3.3
 
 - The French edition on the English DVD Edition image (its `Francais` folder): French is now the second game language

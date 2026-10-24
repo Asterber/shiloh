@@ -472,6 +472,76 @@ stage.addEventListener('wheel', (e) => {
   wheelAcc -= lines * 100;
   worker.postMessage({ t: 'wheel', lines, ...toPicture(e) });
 }, { passive: false });
+// ---- the controller (H2410, a port feature: the original has none). The Gamepad API is polled every animation frame;
+// the pad used last is read ("standard" layout: Xbox / PlayStation pads, the Steam Deck), and its reading goes to the
+// worker ('pad'), where the engine's front::pad makes the mouse's / keys' input from it (xf_pad). While the settings
+// dialog shows, the pad moves through the dialog instead (D-pad / left stick: up / down = the next control, left /
+// right = its value; A presses a button; B / Start / Back close it), and the buttons held when it closes are kept from
+// the game until they are let go.
+const PAD_BITS = [[0, 1], [1, 2], [2, 4], [3, 8], [4, 16], [5, 32], [8, 64], [9, 128], [10, 256], [11, 512],
+  [12, 1024], [13, 2048], [14, 4096], [15, 8192]]; // standard button index → front::pad bit
+const PAD_A = 1, PAD_B = 2, PAD_BACK = 64, PAD_START = 128, PAD_UP = 1024, PAD_DOWN = 2048, PAD_LEFT = 4096, PAD_RIGHT = 8192;
+const pad = { index: null, sent: '', prev: 0, mask: 0, dir: null, next: 0, focus: 0 };
+function readPad(g) {
+  let b = 0;
+  for (const [i, bit] of PAD_BITS) if (g.buttons[i] && (g.buttons[i].pressed || g.buttons[i].value > 0.5)) b |= bit;
+  const ax = (i) => (Number.isFinite(g.axes[i]) ? g.axes[i] : 0);
+  const tr = (i) => (g.buttons[i] ? g.buttons[i].value : 0);
+  return { a: [ax(0), ax(1), ax(2), ax(3), tr(6), tr(7)], b };
+}
+const padActive = (r) => r.b !== 0 || r.a.some((v, i) => Math.abs(v) > (i < 4 ? 0.3 : 0.5));
+function padDialog(r, pressed) {
+  if (pressed & (PAD_B | PAD_BACK | PAD_START)) { pad.mask = r.b; showSettings(false); return; }
+  const els = [...setBox.querySelectorAll('select, input, button')].filter((el) => !el.disabled && !el.closest('[hidden]'));
+  if (!els.length) return;
+  pad.focus = Math.min(pad.focus, els.length - 1);
+  const [lx, ly] = r.a;
+  const dir = r.b & PAD_UP || ly < -0.6 ? 'up' : r.b & PAD_DOWN || ly > 0.6 ? 'down'
+    : r.b & PAD_LEFT || lx < -0.6 ? 'left' : r.b & PAD_RIGHT || lx > 0.6 ? 'right' : null;
+  const now = performance.now();
+  let act = null;
+  if (dir !== pad.dir) { pad.dir = dir; pad.next = now + 380; act = dir; }
+  else if (dir && now >= pad.next) { pad.next += 170; act = dir; }
+  const el = els[pad.focus];
+  if (act === 'up' || act === 'down') pad.focus = Math.max(0, Math.min(els.length - 1, pad.focus + (act === 'up' ? -1 : 1)));
+  else if ((act === 'left' || act === 'right') && el.tagName === 'SELECT') {
+    const ok = [...el.options].map((o, i) => [o, i]).filter(([o]) => !o.hidden && !o.disabled).map(([, i]) => i);
+    const at = ok.indexOf(el.selectedIndex);
+    const to = ok[Math.max(0, Math.min(ok.length - 1, at + (act === 'left' ? -1 : 1)))];
+    if (to !== undefined && to !== el.selectedIndex) { el.selectedIndex = to; el.dispatchEvent(new Event('change')); }
+  } else if ((act === 'left' || act === 'right') && el.type === 'range') {
+    el.value = String(+el.value + (act === 'left' ? -5 : 5));
+    el.dispatchEvent(new Event('input'));
+  } else if (pressed & PAD_A && el.tagName === 'BUTTON') el.click();
+  // the focus follows the pad only when it was used (a mouse user's focus is left alone)
+  if ((act || pressed) && !setBox.hidden && document.activeElement !== els[pad.focus]) els[pad.focus].focus();
+}
+function pollPads() {
+  requestAnimationFrame(pollPads);
+  if (!navigator.getGamepads) return;
+  let list = [];
+  try { list = [...navigator.getGamepads()].filter(Boolean); } catch (e) { return; }
+  for (const g of list) if (g.index !== pad.index && padActive(readPad(g))) pad.index = g.index;
+  const g = list.find((p) => p.index === pad.index);
+  const r = g ? readPad(g) : { a: [0, 0, 0, 0, 0, 0], b: 0 };
+  const pressed = r.b & ~pad.prev;
+  pad.prev = r.b;
+  if (!setBox.hidden) {
+    padDialog(r, pressed);
+    r.a = [0, 0, 0, 0, 0, 0];
+    r.b = 0;
+  }
+  pad.mask &= r.b;
+  r.b &= ~pad.mask;
+  if (r.b || padActive(r)) wakeAudio();
+  const key = r.a.map((v) => v.toFixed(3)).join() + '/' + r.b;
+  if (ready && worker && key !== pad.sent) { pad.sent = key; worker.postMessage({ t: 'pad', a: r.a, b: r.b }); }
+}
+// some browsers offer the Gamepad API only in a secure context (https / localhost)
+if (!navigator.getGamepads) console.log('[xf] controller: this browser offers no gamepads on this page (try https, localhost or another browser)');
+addEventListener('gamepadconnected', (e) => console.log(`[xf] controller ${e.gamepad.index}: ${e.gamepad.id} (${e.gamepad.mapping || 'no standard mapping'})`));
+requestAnimationFrame(pollPads);
+
 addEventListener('keydown', (e) => {
   wakeAudio();
   if (e.altKey && e.key === 'Enter') { e.preventDefault(); toggleFull(); return; }

@@ -21,6 +21,31 @@ each with its hotkey (F1 / F2 / F3 / F11). They are kept in `~/Library/Applicati
 line is where the game data was last found (a dropped path, a copy next to the program, the dialog's choice; a path
 list); delete the line to be asked again. `--data` is never written there.
 
+**Controller** (a port feature, `src/front/pad.rs`, H2410): an Xbox / PlayStation pad or the Steam Deck's controls
+(Game Mode presents them as an Xbox pad), in the window (SDL's GameController, hot-plug, the pad used last is read) and
+in the browser (the Gamepad API). The pad makes only the input the mouse and the keys make, so the game itself sees
+nothing new.
+
+| Control | Does |
+|---|---|
+| left stick | moves the pointer (speed curve, faster when held at full; LT / RT held: slower, for precision) |
+| D-pad, right stick | jumps to the next thing to click in that direction (hotspots, people, items, dialogue lines, the inventory bar, computer buttons, menu items); held: repeats |
+| LB / RB | previous / next thing to click, in reading order |
+| A | left button (held: a held arrow repeats, an idea icon drags) |
+| B | right button (skips a video) |
+| X | the pointer to the inventory strip at the bottom and back |
+| Y | hotspots (F1) |
+| Start | the game's menu (Esc) |
+| Back / View | the port settings (F10) |
+
+The settings' **Controller** row: `free pointer` (default), `centred pointer (PS1)` — as the game's PlayStation
+version, the pointer rests at the View's centre, the stick places it around the centre (full deflection = the
+picture's edges) and it glides back when the stick is let go; a jump (D-pad) or the mouse leaves it where it went until
+the stick moves. There is no `off`: a pad that switched itself off could only be switched back with the mouse. **Pointer speed**: slow … fast (the free pointer). Where no cursor of the game shows (the
+menu screen, the settings) the port draws an arrow for the pad. In the browser the settings dialog is driven by the pad
+too (up / down: the next control, left / right: its value, A: a button, B / Start / Back: close). Firefox on macOS sees a DualShock 4 over
+Bluetooth but gets no input from it (the buttons and sticks stay at rest; Chrome works, as does the window).
+
 ## Music in QDMC format (one-time step, needs ffmpeg)
 
 14 files of the game hold their sound as QDesign Music ('QDMC'), which the port does not decode itself: the New Game

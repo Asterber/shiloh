@@ -316,6 +316,17 @@ pub fn motion(s: &mut Session, at: Option<(i32, i32)>) -> Pointer {
     }
 }
 
+/// The game's cursor is drawn into the frame at the pointer now ([`motion`]'s [`Pointer::Hidden`] case, asked without
+/// a move): a host whose pointer the controller drives draws its own only where this is false (front::pad).
+pub fn game_cursor_shown(s: &Session) -> bool {
+    !s.intro_playing()
+        && s.alt.msgbox.is_none()
+        && !s.r.menu_open
+        && !s.r.rewind_box
+        && s.mouse.is_some()
+        && super::cursor::shape(s).is_some()
+}
+
 /// One voice per sounding asset, nearest-sample resampling to the output rate.
 pub struct Voice {
     pub asset: u32,

@@ -17,6 +17,7 @@ pub mod intro;
 pub mod rewind;
 pub mod light;
 pub mod menu;
+pub mod pad;
 pub mod pda;
 pub mod script;
 pub mod settings;

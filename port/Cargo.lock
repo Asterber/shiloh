@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "xf"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "dunce",
  "gl",

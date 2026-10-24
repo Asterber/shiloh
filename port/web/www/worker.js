@@ -7,7 +7,8 @@
 //               (H1730: hidden + on = the loop stops, no CPU; hidden + off = the game runs on, nothing drawn),
 //               {t:'saves-reload'} (the page imported slot files, H1734), {t:'set', key, value} (a setting, H1750: xf_set;
 //               init's m.settings = `key = value` lines), {t:'pause', v} (the settings dialog shows: the loop stops),
-//               {t:'get-settings'}, {t:'alt', key: 'A'..'Z' | '0'..'9', shift} (H2060: the original's Alt hotkeys)
+//               {t:'get-settings'}, {t:'alt', key: 'A'..'Z' | '0'..'9', shift} (H2060: the original's Alt hotkeys),
+//               {t:'pad', a: [lx, ly, rx, ry, lt, rt], b} (H2410: a controller reading, front::pad)
 // Messages out: {t:'ready'}, {t:'status', ...}, {t:'pointer', p}, {t:'error', msg}, {t:'frame', buf} (no OffscreenCanvas),
 //               {t:'quit'} (the game menu's Quit), {t:'saves', where}, {t:'progress', stage, got, total} (loading),
 //               {t:'saves-reloaded'}, {t:'open-settings'} (the menu screen's "Port settings" button),
@@ -32,6 +33,7 @@ function audioTarget() {
   return Math.round(rate * s);
 }
 let pending = null;      // bytes of the last fetch, until xf_js_take
+let pad = null;          // H2410: the controller's last reading from the page {a: [lx, ly, rx, ry, lt, rt], b: bits}
 let loading = true;      // until the engine has started (fetches are reported to the page's loading screen)
 let hidden = false;      // the page is hidden: nothing drawn; the clock stops unless pauseHidden is off
 let pauseHidden = true;  // H1730 / H1681: hidden = paused (default); off = the game runs on in a hidden tab
@@ -366,6 +368,10 @@ function frame(id) {
     frameAt = now;
     const dt = Math.max(0, Math.floor(now - last));
     last += dt;
+    // H2410: the controller's last reading (the page's 'pad'); the pad moved the pointer: the page hides its own
+    if (pad && x.xf_pad(pad.a[0], pad.a[1], pad.a[2], pad.a[3], pad.a[4], pad.a[5], pad.b, Math.min(dt, 250))) {
+      postMessage({ t: 'pointer', p: 0 });
+    }
     const p = x.xf_tick(Math.min(dt, 250));  // the window's `dt.min(250)`
     if (p) {
       const px = new Uint8ClampedArray(x.memory.buffer, p, W * H * 4);
@@ -437,6 +443,8 @@ onmessage = (e) => {
   if (!x) return;
   switch (m.t) {
     case 'move': postMessage({ t: 'pointer', p: x.xf_motion(m.x, m.y, m.inside ? 1 : 0) }); break;
+    // H2410: a controller reading (sticks, triggers, button bits of front::pad), read by the next frame
+    case 'pad': pad = { a: m.a, b: m.b }; break;
     case 'down': x.xf_button(m.b, m.x, m.y, m.inside ? 1 : 0); break;
     case 'up': x.xf_release(m.b, m.x, m.y, m.inside ? 1 : 0); break;
     case 'wheel': x.xf_wheel(m.lines, m.x, m.y, m.inside ? 1 : 0); break;

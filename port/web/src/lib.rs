@@ -281,6 +281,10 @@ struct State {
     prefs_saved: bool,
     /// the pointer is over that button
     menu_hover: bool,
+    /// H2410: the controller's pointer model ([`xf_pad`]) and the pointer shape after its last move (0 hidden, 1
+    /// hand, 2 arrow: [`motion`])
+    pad: xf::front::pad::Pad,
+    pad_shape: u32,
     /// [`xf_settings`]'s text
     text: String,
 }
@@ -429,6 +433,8 @@ pub unsafe extern "C" fn xf_init(
         settings_req: false,
         prefs_saved: false,
         menu_hover: false,
+        pad: Default::default(),
+        pad_shape: 2,
         text: String::new(),
     };
     STATE.with(|x| *x.borrow_mut() = Some(st));
@@ -446,6 +452,11 @@ pub extern "C" fn xf_tick(dt: u32) -> *const u8 {
         // H1751: the "Port settings" button on the game's menu screen (the page's settings dialog)
         if st.s.r.menu_open {
             xf::front::settings::draw_menu_button(&mut fb, st.menu_hover);
+        }
+        // H2410: the controller's pointer where no cursor of the game is drawn (the menu screen, the box)
+        if st.pad.driving && !host::game_cursor_shown(&st.s) {
+            let (x, y) = st.pad.point();
+            xf::front::pad::draw_pointer(&mut fb, x, y, st.pad_shape == 1);
         }
         let mut changed = false;
         for (d, s) in st.rgba.chunks_exact_mut(4).zip(fb.chunks_exact(3)) {
@@ -512,17 +523,61 @@ fn at(x: i32, y: i32, inside: u32) -> Option<(i32, i32)> {
 pub extern "C" fn xf_motion(x: i32, y: i32, inside: u32) -> u32 {
     with(|st| {
         let p = at(x, y, inside);
-        st.menu_hover = st.s.r.menu_open && p.is_some_and(|(x, y)| xf::front::settings::menu_button_at(x, y));
-        if st.menu_hover {
-            return 1;
+        if let Some(p) = p {
+            st.pad.mouse_moved(p); // H2410: the mouse moved last — the pad goes on from here
         }
-        match host::motion(&mut st.s, p) {
+        motion(st, p)
+    })
+    .unwrap_or(2)
+}
+
+/// [`xf_motion`]'s part shared with the controller.
+fn motion(st: &mut State, p: Option<(i32, i32)>) -> u32 {
+    st.menu_hover = st.s.r.menu_open && p.is_some_and(|(x, y)| xf::front::settings::menu_button_at(x, y));
+    if st.menu_hover {
+        return 1;
+    }
+    match host::motion(&mut st.s, p) {
         Pointer::Hidden => 0,
         Pointer::Hand => 1,
         Pointer::Arrow => 2,
+    }
+}
+
+/// H2410: the controller's reading (front::pad: sticks −1..1, triggers 0..1, button bits), `dt` ms after the last;
+/// its outputs go the mouse's and the keys' ways ([`motion`], [`button`], [`release`], [`key`]; Back = the page's
+/// settings dialog, [`xf_settings_req`]). Returns 1 when the pad moved the pointer (the page hides its own), else 0.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub extern "C" fn xf_pad(lx: f32, ly: f32, rx: f32, ry: f32, lt: f32, rt: f32, buttons: u32, dt: u32) -> u32 {
+    use xf::front::pad::{self, PadKey, PadOut};
+    with(|st| {
+        let inp = pad::PadIn { lx, ly, rx, ry, lt, rt, buttons };
+        let outs = match pad::PadCfg::from_settings(&st.set) {
+            Some(cfg) => {
+                let s = &st.s;
+                st.pad.update(&inp, dt as u64, &cfg, &mut || pad::targets(s))
+            }
+            None => st.pad.release_all(),
+        };
+        let mut moved = 0;
+        for o in outs {
+            let p = Some(st.pad.point());
+            match o {
+                PadOut::Move(x, y) => {
+                    st.pad_shape = motion(st, Some((x, y)));
+                    moved = 1;
+                }
+                PadOut::Down(b) => button(st, b, p),
+                PadOut::Up(b) => release(st, b, p),
+                PadOut::Key(PadKey::Menu) => key(st, "Escape"),
+                PadOut::Key(PadKey::Hotspots) => key(st, "F1"),
+                PadOut::Key(PadKey::Settings) => st.settings_req = true,
+            }
         }
+        moved
     })
-    .unwrap_or(2)
+    .unwrap_or(0)
 }
 
 /// The mouse wheel at (x, y): `lines` notches, < 0 = up (H1815, a port convenience: the dialogue box / the computer's
@@ -544,17 +599,19 @@ pub extern "C" fn xf_button(b: u32, x: i32, y: i32, inside: u32) {
         2 => Button::Right,
         _ => return,
     };
-    with(|st| {
-        let p = at(x, y, inside);
-        if b == Button::Left && st.s.r.menu_open && p.is_some_and(|(x, y)| xf::front::settings::menu_button_at(x, y)) {
-            st.settings_req = true;
-            return;
-        }
-        if let Some(l) = host::button(&mut st.s, b, p) {
-            log(&l, 0);
-        }
-        host_request(st);
-    });
+    with(|st| button(st, b, at(x, y, inside)));
+}
+
+/// [`xf_button`]'s part shared with the controller.
+fn button(st: &mut State, b: Button, p: Option<(i32, i32)>) {
+    if b == Button::Left && st.s.r.menu_open && p.is_some_and(|(x, y)| xf::front::settings::menu_button_at(x, y)) {
+        st.settings_req = true;
+        return;
+    }
+    if let Some(l) = host::button(&mut st.s, b, p) {
+        log(&l, 0);
+    }
+    host_request(st);
 }
 
 /// Load the subtitle pack `mode` (en / ru / auto / off, `xf::media::subs::Pack::pick`) from xf-serve's cache into the
@@ -608,12 +665,15 @@ pub extern "C" fn xf_release(b: u32, x: i32, y: i32, inside: u32) {
         2 => Button::Right,
         _ => return,
     };
-    with(|st| {
-        if let Some(l) = host::release(&mut st.s, b, at(x, y, inside)) {
-            log(&l, 0);
-        }
-        host_request(st);
-    });
+    with(|st| release(st, b, at(x, y, inside)));
+}
+
+/// [`xf_release`]'s part shared with the controller.
+fn release(st: &mut State, b: Button, p: Option<(i32, i32)>) {
+    if let Some(l) = host::release(&mut st.s, b, p) {
+        log(&l, 0);
+    }
+    host_request(st);
 }
 
 /// A key by DOM `KeyboardEvent.key`: Space / Enter end the playing media (as in the window), F1 toggles the overlay,
@@ -621,36 +681,39 @@ pub extern "C" fn xf_release(b: u32, x: i32, y: i32, inside: u32) {
 #[no_mangle]
 pub unsafe extern "C" fn xf_key(p: *const u8, n: usize) {
     let k = str_arg(p, n).to_string();
-    with(|st| {
-        if (k == " " || k == "Enter") && host::end_playing(&mut st.s) {
-            return;
-        }
-        // F4 = the next game language (H1836, as the window: RU / EN with the English data set, xf_en_data; nothing with
-        // one language, H2305) — the settings follow
-        if k == "F4" {
-            if let Some(next) = st.s.next_game_lang() {
-                let _ = st.set.set("game_lang", next);
-                if let Some(l) = st.set.apply_key("game_lang", &mut st.s) {
-                    log(&l, 0);
-                }
-            }
-            return;
-        }
-        // F1 = hotspots, F3 = closed captions on / off (H343, as the window) — the settings follow (H1750)
-        if k == "F1" || k == "F3" {
-            let key = if k == "F1" { "overlay" } else { "captions" };
-            let on = if k == "F1" { !st.s.overlay } else { !st.s.r.w.closed_captioning() };
-            let _ = st.set.set(key, if on { "on" } else { "off" });
-            if let Some(l) = st.set.apply_key(key, &mut st.s) {
+    with(|st| key(st, &k));
+}
+
+/// [`xf_key`]'s part shared with the controller.
+fn key(st: &mut State, k: &str) {
+    if (k == " " || k == "Enter") && host::end_playing(&mut st.s) {
+        return;
+    }
+    // F4 = the next game language (H1836, as the window: RU / EN with the English data set, xf_en_data; nothing with
+    // one language, H2305) — the settings follow
+    if k == "F4" {
+        if let Some(next) = st.s.next_game_lang() {
+            let _ = st.set.set("game_lang", next);
+            if let Some(l) = st.set.apply_key("game_lang", &mut st.s) {
                 log(&l, 0);
             }
-            return;
         }
-        if let Some(code) = host::vk(&k) {
-            log(&host::key(&mut st.s, code), 0);
-            host_request(st);
+        return;
+    }
+    // F1 = hotspots, F3 = closed captions on / off (H343, as the window) — the settings follow (H1750)
+    if k == "F1" || k == "F3" {
+        let key = if k == "F1" { "overlay" } else { "captions" };
+        let on = if k == "F1" { !st.s.overlay } else { !st.s.r.w.closed_captioning() };
+        let _ = st.set.set(key, if on { "on" } else { "off" });
+        if let Some(l) = st.set.apply_key(key, &mut st.s) {
+            log(&l, 0);
         }
-    });
+        return;
+    }
+    if let Some(code) = host::vk(k) {
+        log(&host::key(&mut st.s, code), 0);
+        host_request(st);
+    }
 }
 
 /// H2060 (H1868): an Alt hotkey of the original — `vk` its virtual-key code ('0'–'9', 'A'–'Z'), `shift` ≠ 0 = Shift

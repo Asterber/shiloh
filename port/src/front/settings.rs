@@ -164,6 +164,24 @@ pub const OPTIONS: &[Opt] = &[
         web_kind: None,
         help: "stop the game while the window is minimised / the tab is hidden",
     },
+    Opt {
+        key: "pad",
+        label: "Controller",
+        kind: Kind::List(&[("free", "free pointer"), ("centred", "centred pointer (PS1)")]),
+        hint: "",
+        fronts: Fronts::Both,
+        web_kind: None,
+        help: "gamepad: left stick = pointer (free, or resting at the View's centre as on the PS1), D-pad = next target",
+    },
+    Opt {
+        key: "pad_speed",
+        label: "Pointer speed",
+        kind: Kind::List(&[("50", "slow"), ("75", "slower"), ("100", "normal"), ("150", "faster"), ("200", "fast")]),
+        hint: "",
+        fronts: Fronts::Both,
+        web_kind: None,
+        help: "the free pointer's speed (a trigger held: slower, for precision)",
+    },
 ];
 
 /// The option of a key.
@@ -229,6 +247,8 @@ impl Default for Settings {
                 d("long_timers", "wine"),
                 d("overlay", "off"),
                 d("pause_hidden", "on"),
+                d("pad", "free"),
+                d("pad_speed", "100"),
             ],
         }
     }
@@ -578,14 +598,14 @@ pub const ALT_HELP: &str = "Alt: 0-9 volume, A/M/R/T/V prefs, C captions, P paus
 
 const PANEL: [i32; 4] = [36, 16, 604, 464];
 const ROW0: i32 = 52;
-const ROW_H: i32 = 20;
+const ROW_H: i32 = 18;
 const VAL_X: i32 = 250;
 const VAL_W: i32 = 210;
 const HINT_X: i32 = 540;
 const CLOSE: [i32; 4] = [520, 24, 596, 44];
 /// the scale preview: a crop of the frame, 3× nearest | 3× linear
-const PREVIEW_Y: i32 = 306;
-const CROP: (usize, usize) = (80, 50);
+const PREVIEW_Y: i32 = 314;
+const CROP: (usize, usize) = (80, 48);
 const ZOOM: usize = 3;
 
 const BG: [u8; 3] = [10, 16, 20];
@@ -703,6 +723,15 @@ impl SettingsUi {
     pub fn clickable(&self, x: i32, y: i32) -> bool {
         inside(CLOSE, x, y)
             || self.rows().iter().any(|r| inside(r.2, x, y) || inside(r.3, x, y) || inside(r.4, x, y))
+    }
+
+    /// The controller's snap targets (front::pad): Close, each row's "<" / value / ">".
+    pub fn targets(&self) -> Vec<super::pad::Target> {
+        let mut v = vec![super::pad::Target::of_rect(CLOSE)];
+        for r in self.rows() {
+            v.extend([r.2, r.4, r.3].map(super::pad::Target::of_rect));
+        }
+        v
     }
 
     /// The pointer moved (a held volume bar follows it).

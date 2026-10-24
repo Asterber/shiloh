@@ -72,6 +72,10 @@ distributes nothing of the game.
 - Game language switch (F4) through every language of the copies you give: the game data's own plus every language
   folder of the discs (the Russian release with the English DVD Edition image: Russian, English and French). The
   settings name each language's edition and source (file or folder name).
+- Controller support (Xbox / PlayStation pads, Steam Deck) in the window and the browser: the left stick moves the
+  pointer (freely, or resting at the centre as on the PlayStation version), the D-pad jumps to the next thing to click,
+  A / B click (see `port/README.md` for the full map). Firefox on macOS gets no input from a DualShock 4 over
+  Bluetooth; use Chrome or Safari, a cable, or the window.
 - Saves use the original game's save-file format.
 - The game's QDesign (QDMC) music tracks are converted once with your own `ffmpeg` (`xf-prep`); everything else,
   including all video, is decoded by Shiloh itself.
