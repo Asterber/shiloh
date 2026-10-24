@@ -1254,6 +1254,12 @@ pub struct Rules {
     /// variables, as at New Game, C86); a Save writes the running game's values to the host's Preferences (H2084: the
     /// registry follows after the save sequence; the fronts persist them). Off: a Load keeps the save's values (H1990)
     pub h2100_load_host_prefs: bool,
+    /// HYPOTHESIS H2340 (static: the menu's open and item handlers + R29 `traces/fo-086.jsonl`): the screens the menu opens
+    /// (Save 0x14269, Load 0x142ca, Options 0xc24a, Help 0xc51c) show over the live menu — the game stays paused under
+    /// them (the menu's opening pauses the app; only its Return unpauses it; the
+    /// Options / Help / Save / Load items do not): no game clock, timers, media or captions until the menu is back. Off:
+    /// the game runs on under them (the port before)
+    pub h2340_menu_screen_pauses: bool,
     /// C301 (`traces/fo-253.jsonl`, H2191; display only): with the gun held (inventory value 9) the null cursor is the
     /// gunsight 0x84 over the View band where the held gun is hit, over a movie-hotspot target, over a playing video in
     /// the band (its cursor handler leaves the band's choice) and over an Explorable / CharView whose cursor pick would
@@ -1263,6 +1269,12 @@ pub struct Rules {
     /// shows only if one of its Mouse Click triggers reacts to the held value (the reaction test, FUN_004d1f70); else the
     /// Explorable's own region cursor. Off: the item's cursor over every Explorable while an item is selected
     pub c302_item_cursor_reaction: bool,
+    /// H2350 (static decode of the target's cursor pick; fo-264 / fo-265 / fo-220 hold, display only): over a
+    /// live movie-hotspot target the cursor is picked by the hotspot id — 441 / 451 / 463 the fist 0x4454 whatever is
+    /// held; 433 / 461 / 470 the stiletto item's cursor 0x7cbb and 462 the animated stiletto 0xe2ef with the stiletto
+    /// held (inventory value 0x17); else, with the gun held (9), the gunsight; else the cursor is left as it was. Off: a
+    /// target shows the crosshair (the gunsight with the gun, C301)
+    pub h2350_movie_hot_cursor: bool,
     /// C306 (`traces/fo-259.jsonl` / fo-260 / fo-261, H2251): the held camera's shot (H2170) is a photo of the video
     /// under the viewfinder — the playing video, else the View's looping background — at its current time (f68, 1/600 s),
     /// cropped to (x0, 0, x0 + 320, 240) with x0 = pointer x − 160 clamped to 0..280; stored in the camera like TakePhoto's
@@ -1460,8 +1472,10 @@ impl Rules {
             h2083_ai_icon_pref: true,
             h2120_history_row_colour: true,
             h2100_load_host_prefs: true,
+            h2340_menu_screen_pauses: true,
             c301_gunsight_cursor: true,
             c302_item_cursor_reaction: true,
+            h2350_movie_hot_cursor: true,
             c306_shot_photo: true,
             h2280_save_slot_bar: true,
             h1220_bg_none_deact: true,

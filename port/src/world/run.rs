@@ -232,6 +232,9 @@ pub struct Runner<'a> {
     pub(super) inv_enabled: HashSet<u32>,
     /// H169: the in-game menu is open (opened by the top-right object, closed by [`Runner::menu_choose`])
     pub menu_open: bool,
+    /// H2340: a screen the menu opened (Save / Load / Options / Help) shows over the live menu (cleared when the menu
+    /// shows again)
+    pub menu_screen: bool,
     /// H403: save / load requests of the save screens (`Out::SaveGame` / `Out::LoadGame`) for the front-end, in order
     pub save_req: Vec<super::Out>,
     /// H361: the previous hover point (the panel's Roll Into test)
@@ -316,6 +319,7 @@ impl<'a> Runner<'a> {
             release_target: None,
             inv_enabled: HashSet::new(),
             menu_open: false,
+            menu_screen: false,
             save_req: Vec::new(),
             last_hover: None,
             plays: Vec::new(),
@@ -815,6 +819,7 @@ impl<'a> Runner<'a> {
                 }
                 Out::MainMenu { action } => {
                     self.menu_open = true;
+                    self.menu_screen = false;
                     self.log.push(format!("action {action:#x}: H191 menu object posted"));
                 }
                 Out::Stall { action, ms } => {

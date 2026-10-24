@@ -1,6 +1,6 @@
 [package]
 name = "xf-web"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "X-Files port, web front: the core (Session) compiled to wasm32-unknown-unknown, run in a Web Worker"
 license = "MIT OR Apache-2.0"

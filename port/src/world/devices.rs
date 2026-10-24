@@ -528,6 +528,8 @@ pub const GUN_OWNER: u32 = 0xffff_ff18;
 pub const VIDEO_OWNER: u32 = 0xffff_ff1b;
 /// H2170: the held camera (kind 0x18, type 2) as a click target
 pub const CAMERA_OWNER: u32 = 0xffff_ff1c;
+/// H404 / H407: the screens the menu opens (save, load, options, help)
+pub const MENU_SCREENS: [u32; 4] = [0x14269, 0x142ca, 0xc24a, 0xc51c];
 /// H169: kind 0x1a rect — top band
 pub const MENU_RECT: [i16; 4] = [501, 0, 640, 34];
 /// H156 / H170: kind 0x11 rect — bottom band
@@ -783,12 +785,28 @@ impl Runner<'_> {
         self.menu_open = true;
     }
 
+    /// H2340: the game is paused by the menu — the menu shows, or a screen it opened (Save / Load / Options / Help) is
+    /// still up over it.
+    pub fn game_paused(&self) -> bool {
+        self.menu_open || self.menu_screen_up()
+    }
+
+    /// H2340: a screen the menu opened is still shown over the live menu.
+    pub fn menu_screen_up(&self) -> bool {
+        self.w.rules.h2340_menu_screen_pauses
+            && self.menu_screen
+            && !self.menu_open
+            && self.w.layouts().iter().any(|l| MENU_SCREENS.contains(&l.0))
+    }
+
     /// H169: the in-game menu's choice — Save (H140: layout 0x14269), Load (H70: 0x142ca), Options (H404: 0xc24a), Help
     /// (H404: 0xc51c) or back to the game; New / Quit close the menu and are the front-end's (a new session / exit).
     pub fn menu_choose(&mut self, c: MenuChoice) {
         if !std::mem::take(&mut self.menu_open) {
             return;
         }
+        // H2340: these screens show over the live menu (the game stays paused under them)
+        self.menu_screen = matches!(c, MenuChoice::Save | MenuChoice::Load | MenuChoice::Options | MenuChoice::Help);
         match c {
             MenuChoice::Save => self.w.menu_screen(0x14269, true),
             MenuChoice::Load => self.w.menu_screen(0x142ca, true),

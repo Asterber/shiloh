@@ -216,7 +216,7 @@ fn settle_load(s: &mut Session) {
     s.tick(0);
     let h = s.r.w.h;
     let busy = |s: &Session| {
-        !s.r.menu_open && (s.r.pending() > 0 || s.r.started().iter().any(|&a| !is_sound(h, a)) || s.r.one_shot_timers() > 0)
+        !s.r.game_paused() && (s.r.pending() > 0 || s.r.started().iter().any(|&a| !is_sound(h, a)) || s.r.one_shot_timers() > 0)
     };
     while busy(s) && s.now - t0 < 900_000 {
         s.tick(100);
@@ -1145,7 +1145,7 @@ impl Ctx {
                 let want = (dur * 1000.0) as u64;
                 let t0 = s.now;
                 // H404: the menu stops the game's clock — the step's wall time cannot be run on while it shows
-                while s.now - t0 < want && !s.r.menu_open {
+                while s.now - t0 < want && !s.r.game_paused() {
                     s.tick(100);
                 }
             }
@@ -1180,7 +1180,7 @@ impl Ctx {
                 if let Some(down) = button_down_after(text, bounds[k + 1], bounds[k + 2]) {
                     lag = ((down - bounds[k + 1]).max(0.0) * 1000.0) as u64;
                     let want = t0 + lag;
-                    while s.now < want && !s.r.menu_open {
+                    while s.now < want && !s.r.game_paused() {
                         s.tick((want - s.now).min(100));
                     }
                 }
@@ -1266,7 +1266,7 @@ impl Ctx {
                 let want = t0 + (dur * 1000.0) as u64;
                 // H1521: to the ms — a 100-ms tick's overshoot adds up over a `seq`'s 0.12-s steps (fo-211: +0.4 s
                 // after ten clicks, 0x1fca's Activation three windows early)
-                while s.now < want && !s.r.menu_open {
+                while s.now < want && !s.r.game_paused() {
                     s.tick((want - s.now).min(100));
                 }
             }
@@ -1438,7 +1438,7 @@ impl Ctx {
                 let dur = bounds[1] - bounds[0];
                 if self.wallclock && dur.is_finite() {
                     let t0 = s.now;
-                    while s.now - t0 < (dur * 1000.0) as u64 && !s.r.menu_open {
+                    while s.now - t0 < (dur * 1000.0) as u64 && !s.r.game_paused() {
                         s.tick(100);
                     }
                 }

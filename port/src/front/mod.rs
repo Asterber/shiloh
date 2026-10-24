@@ -686,7 +686,8 @@ impl<'a> Session<'a> {
         }
         // H404: while the menu shows, the game's clock stops (queued commands still run)
         self.menu_tick(dt);
-        if self.r.menu_open {
+        // H2340: also under a screen the menu opened (Save / Load / Options / Help): the game stays paused
+        if self.r.game_paused() {
             self.r.run(100_000);
             self.save_requests();
             return;
@@ -752,7 +753,7 @@ impl<'a> Session<'a> {
     /// Nothing queued, nothing playing.
     pub fn idle(&self) -> bool {
         self.intro.is_none()
-            && (self.r.menu_open
+            && (self.r.game_paused()
                 || self.r.rewind_box
                 || (self.r.pending() == 0 && (self.r.frozen || self.r.playing().is_none())))
     }
@@ -1166,7 +1167,8 @@ impl<'a> Session<'a> {
         if self.r.menu_open {
             return self.menu_audio();
         }
-        if self.r.rewind_box || self.r.frozen || self.alt.msgbox.is_some() {
+        // H2340: under a screen the menu opened the game's players stand still too (the menu's own sound there: not modelled)
+        if self.r.rewind_box || self.r.frozen || self.alt.msgbox.is_some() || self.r.menu_screen_up() {
             return Vec::new(); // H1700 / H1703: the players stand still (not traced: what the original's sound does)
         }
         let mut out = Vec::new();
@@ -1562,7 +1564,7 @@ pub fn settle_timers(s: &mut Session, dt: u64, max_ms: u64) {
     let t0 = s.now;
     s.tick(0);
     // the menu stops the game's clock (H404): its timers wait
-    while (!s.idle() || (!s.r.menu_open && s.r.one_shot_timers() > 0)) && s.now - t0 < max_ms {
+    while (!s.idle() || (!s.r.game_paused() && s.r.one_shot_timers() > 0)) && s.now - t0 < max_ms {
         s.tick(dt);
     }
 }

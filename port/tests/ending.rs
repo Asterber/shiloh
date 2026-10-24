@@ -85,6 +85,8 @@ fn c220_key_lure_stiletto_cook_credits_main_menu_new_game() {
 
     // the stiletto click on Cook (hotspot 462, the stiletto reaction) → kill movie sc122AD
     s.hover_at(153, 190);
+    // H2350 (fo-220 110.329: REG + Activation of 0xe2ef at the button-down): the animated stiletto over hotspot 462
+    assert_eq!(xf::front::cursor::shape(&s), Some(xf::front::cursor::Shape::Game(0xe2ef)), "the stiletto cursor");
     let c = s.click_at(153, 190).expect("Cook's hotspot");
     assert_eq!(c.owner.wrapping_sub(xf::world::moviehot::MOVIE_HOT_TAG), 462);
     let cook = s.now;

@@ -78,8 +78,8 @@ jobs:
           {
             echo
             echo "No game data is included: you need your own copy of The X-Files Game. See \"Downloads\" in the"
-            echo "README for how to run these builds. Built and played on macOS; the Linux and Windows builds are made"
-            echo "by CI and not yet play-tested. Checksums: SHA256SUMS."
+            echo "README for how to run these builds. Built and played on macOS; the Windows build has been run"
+            echo "on a Windows PC; the Linux build is made by CI and not yet play-tested. Checksums: SHA256SUMS."
           } >> notes.md
           cat notes.md
       - name: SHA256SUMS

@@ -62,7 +62,8 @@ fn h1660_logo_then_menu_then_new_game() {
     assert!((136_000..137_100).contains(&t), "intro length {t} ms (C240: the menu 136.6 s after the first logo)");
     assert!(s.r.menu_open && !s.r.game_running, "main menu, no game");
     assert_eq!(s.r.w.view, None);
-    s.tick(6000);
+    // H2344: past the opening (LEFTmain 5.4 s + RIGHT.mov 5.0 s), before which the menu takes no pointer input
+    s.tick(11_000);
     let menu = s.render();
     assert!(lit(&menu, 480, 630, 100, 420) > 0, "menu labels drawn");
     // no game: the Save item is not there, Return keeps the menu

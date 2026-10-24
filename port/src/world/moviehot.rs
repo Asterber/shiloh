@@ -249,6 +249,36 @@ pub fn is_movie_hot(owner: u32) -> bool {
     owner & TAG_MASK == MOVIE_HOT_TAG
 }
 
+/// What a movie-hotspot target does to the cursor when the pointer is over it (H2350).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HoverCursor {
+    /// This VCCursor
+    Cursor(u32),
+    /// The gunsight flag set, the null cursor (= the Win32 gunsight, C301)
+    Gunsight,
+    /// Nothing set: the cursor stays as it was
+    Keep,
+}
+
+/// HYPOTHESIS H2350 (static decode of the target's cursor pick, vt 0x6549c0 +0x68; fo-264 / fo-265 / fo-220
+/// hold) — the cursor over the target of hotspot `id` for the current inventory value `held` (None: nothing held): a
+/// switch on id − 433: 441 / 451 / 463 → the fist 0x4454 whatever is held; 433 / 461 / 470 → with the stiletto the
+/// stiletto item's cursor 0x7cbb; 462 → with the stiletto the animated stiletto 0xe2ef; for these when the stiletto is
+/// not held, and for every other id: with the gun (value 9) the gunsight, else nothing set.
+pub fn hover_cursor(id: u32, held: Option<i32>) -> HoverCursor {
+    const FIST: u32 = 0x4454;
+    const STILETTO_ITEM: u32 = 0x7cbb;
+    const STILETTO_ANIM: u32 = 0xe2ef;
+    const GUN: i32 = 9;
+    match (id, held) {
+        (441 | 451 | 463, _) => HoverCursor::Cursor(FIST),
+        (433 | 461 | 470, Some(STILETTO)) => HoverCursor::Cursor(STILETTO_ITEM),
+        (462, Some(STILETTO)) => HoverCursor::Cursor(STILETTO_ANIM),
+        (_, Some(GUN)) => HoverCursor::Gunsight,
+        _ => HoverCursor::Keep,
+    }
+}
+
 /// H1281: the target's rect in movie pixels for the difficulty char — 'E' grown by trunc(15 %) of the width
 /// / height on each side and clipped to the 600 × 240 movie; 'H' shrunk by trunc(12.5 %), not for a dimension of
 /// ≤ 10 px; else as in the file. An empty result is (0, 0, 0, 0).
@@ -479,6 +509,26 @@ pub fn relative_to_start(hs: &[Hotspot], start: u32) -> Vec<Hotspot> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// H2350: the jump table of the target's cursor pick (indexed by id − 433)
+    #[test]
+    fn h2350_hover_cursor_table() {
+        use HoverCursor::*;
+        for id in [441, 451, 463] {
+            for held in [None, Some(9), Some(0x17), Some(3)] {
+                assert_eq!(hover_cursor(id, held), Cursor(0x4454));
+            }
+        }
+        for id in [433, 461, 470] {
+            assert_eq!(hover_cursor(id, Some(0x17)), Cursor(0x7cbb));
+        }
+        assert_eq!(hover_cursor(462, Some(0x17)), Cursor(0xe2ef));
+        for id in [221, 433, 450, 462, 471] {
+            assert_eq!(hover_cursor(id, Some(9)), Gunsight);
+            assert_eq!(hover_cursor(id, None), Keep);
+            assert_eq!(hover_cursor(id, Some(3)), Keep);
+        }
+    }
 
     #[test]
     fn rects_by_difficulty() {

@@ -21,7 +21,7 @@ distributes nothing of the game.
 ## Status
 
 - The game can be played from start to finish: complete playthroughs have been done in the browser version on both
-  the English DVD Edition and the Russian 1.00 release.
+  the English DVD Edition and the Russian 1.00 release, and on the German 7-CD release.
 - The engine was developed and checked against the Russian 1.00 release (an installed copy). The retail CDs are
   untested.
 - The English DVD Edition runs directly from its disc image (`.iso`, or the Alcohol `.mdf` / `.mds` pair the DVD is
@@ -40,7 +40,7 @@ distributes nothing of the game.
   tables too, so New Game, the computer, phone, cheats and e-mail replies work as on the other releases. German is the
   only language there. The German movies have no subtitles of their own: Settings offers English subtitles only if
   you also have the English release (an English subtitle pack made with `xf-prep --en-subs`, or `--en-data`).
-  Checked without a window: New Game and the opening, every movie found on the seven discs.
+  Played through from start to finish.
 - The English retail CD release runs from its images too (played in a window from CD 1–2 only; all seven discs not
   tested). Its program and database are the same files as the Russian 1.00 release's; Shiloh tells the language by
   the game's text resources. Other CD releases are untested.
@@ -52,11 +52,6 @@ distributes nothing of the game.
   by dropping a disc image onto `xf.exe`). Linux is untested. The browser version needs a current browser with WebAssembly; played through in Firefox.
 - Expect bugs. Where the port's behaviour differs from the original game, a report with the place in the game and
   what the original does there is very welcome.
-
-## Known issues
-
-- The last chase with Mulder near the end of the game cannot currently be won with normal clicks. To get past it,
-  click the Artificial Intuition (hint) icon and then the action it suggests.
 
 ## Features
 

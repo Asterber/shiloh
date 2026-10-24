@@ -24,6 +24,11 @@
 //! movie-hotspot target's set the gunsight flag, so over the View band (the held gun hit, H450),
 //! a goon's target, a playing video there and a reacting Explorable / CharView the null cursor is resource 0x84.
 //!
+//! HYPOTHESIS H2350 (static decode of the target's cursor pick; fo-264 / fo-265 / fo-220 hold) — **a movie-hotspot target picks the
+//! cursor by its hotspot id**: the fist 0x4454 over 441 / 451 / 463 (the 'trap Mulder' red button is 451), with the
+//! stiletto held 0x7cbb over 433 / 461 / 470 and the animated stiletto 0xe2ef over 462 (Cook at the blast door); else
+//! the gunsight with the gun, else the cursor is left as it was ([`moviehot::hover_cursor`]).
+//!
 //! HYPOTHESIS H330 (static) — **animated cursors**: a VCCursor whose f38 picture is an XG/*.pff range `0..k` (kind 2,
 //! the original's cursor builder FUN_00448230) gets one display frame per PFF entry with that entry's duration from the
 //! PFF header (ms, rescaled to 1000 per second), and loops forever (loop count −1); each
@@ -36,6 +41,7 @@ use super::{Session, SCREEN_H, SCREEN_W};
 use crate::media::pict::Picture;
 use crate::pe::WinCursor;
 use crate::world::class;
+use crate::world::moviehot::{self, HoverCursor};
 use std::collections::HashMap;
 
 /// H331: XFiles.exe cursor groups — the default and the one while the gunsight flag is set
@@ -74,6 +80,16 @@ pub fn shape(s: &Session) -> Option<Shape> {
     let rules = s.r.w.rules;
     // C301: the gun held = inventory value 9
     let gun = rules.c301_gunsight_cursor && s.r.w.inventory_held() && s.r.w.inventory_value() == 9;
+    // H2350: a movie-hotspot target picks the cursor by its hotspot id and the held value
+    if let Some(c) = hit.filter(|c| rules.h2350_movie_hot_cursor && moviehot::is_movie_hot(c.owner)) {
+        let held = s.r.w.inventory_held().then(|| s.r.w.inventory_value());
+        return Some(match moviehot::hover_cursor(c.owner & 0xffff, held) {
+            HoverCursor::Cursor(id) if h.has(class::CURSOR, id) => Shape::Game(id),
+            HoverCursor::Gunsight if rules.c301_gunsight_cursor => Shape::Win(WIN_GUNSIGHT),
+            // nothing set: the cursor shown stays (the original changes it only on a cursor message)
+            _ => s.cursor.current.map_or(Shape::Win(WIN_CROSSHAIR), |(sh, _)| sh),
+        });
+    }
     if gun {
         if let Some(c) = hit {
             use crate::world::devices::{GUN_OWNER, VIDEO_OWNER};

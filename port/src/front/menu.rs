@@ -23,7 +23,8 @@
 //!   before, PrefSkipIntro off) plays LEFTmain.mov 0→5400 alone (a blocking wait), then
 //!   RIGHT.mov 0→5000 (the items fade in), MIDloop.mov and MIDloop.amv start together at LEFTmain's end (mv_start
 //!   +5.42 s); every later opening (the Esc menu, the menu after a game end) starts only MIDloop.mov / MIDloop.amv,
-//!   the others shown at their end frames. The game is paused while the menu shows (the front's clock stops; queued
+//!   the others shown at their end frames. H2344: the first opening's two waits (LEFTmain, then RIGHT.mov 0→5000) take
+//!   no pointer input (no message pump; fo-224 / fo-226); what came meanwhile is handled at their end. The game is paused while the menu shows (the front's clock stops; queued
 //!   commands still run); Esc while the menu shows = Return (port choice).
 //! - Sound (H1770, static + data, not traced — the bottle has no audio driver): the menu's players are QuickTime movies
 //!   with their sound tracks (each gets its volume, mv_vol, at its creation in every trace): LEFTmain.mov, RIGHT.mov and
@@ -84,6 +85,16 @@ pub struct MenuUi {
     pub sounds: Vec<(u32, u64)>,
     /// New / Quit chosen: the host's to act on (a new session / the end of the program)
     pub request: Option<MenuChoice>,
+    /// H2344: pointer input that came during the first opening (the original's blocking waits pump no messages), in
+    /// order, consecutive moves merged; handled at the opening's end
+    pub pending: Vec<MenuInput>,
+}
+
+/// A pointer event held back during the first opening (H2344).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuInput {
+    Move(i32, i32),
+    Click(i32, i32),
 }
 
 impl MenuUi {
@@ -95,6 +106,12 @@ impl MenuUi {
     /// When RIGHT.mov / MIDloop start (C290): LEFTmain's end at the first opening, else at once.
     pub fn rest_start(&self) -> u64 {
         self.opened + if self.first { LEFT_INTRO_MS } else { 0 }
+    }
+
+    /// H2344: the first opening's two blocking waits run (C290: LEFTmain.mov 0→5400, then RIGHT.mov 0→5000 inside the
+    /// menu opening routine FUN_0044e060, no message pump) — the menu takes no pointer input yet.
+    pub fn opening(&self) -> bool {
+        self.first && self.clock < self.rest_start() + IDLE_MS
     }
 
     /// LEFTmain.mov time now (its last frame after the opening).
@@ -139,6 +156,15 @@ impl MenuUi {
 impl Session<'_> {
     /// The pointer over the menu (H404 hover).
     pub fn menu_hover(&mut self, x: i32, y: i32) -> Option<MenuChoice> {
+        // H2344: no hover (no item / TOPro reaction, no hover sound) during the first opening; the last position counts
+        // at its end (the queued WM_MOUSEMOVE)
+        if self.menu.opening() {
+            match self.menu.pending.last_mut() {
+                Some(MenuInput::Move(px, py)) => (*px, *py) = (x, y),
+                _ => self.menu.pending.push(MenuInput::Move(x, y)),
+            }
+            return None;
+        }
         let now = self.menu.clock;
         let it = MenuUi::item_at(x, y, self.r.game_running);
         if it != self.menu.hover.map(|h| h.0) {
@@ -153,6 +179,12 @@ impl Session<'_> {
 
     /// A click on the menu (H404): the item's choice goes to the core, New / Quit become the host's request.
     pub fn menu_click(&mut self, x: i32, y: i32) -> Option<MenuChoice> {
+        // H2344: a click during the first opening is held and handled at its end (fo-226: the bot's click at 59.8 reached
+        // the window proc at 62.367, RIGHT.mov's wait end, and started the New Game)
+        if self.menu.opening() {
+            self.menu.pending.push(MenuInput::Click(x, y));
+            return None;
+        }
         let i = MenuUi::item_at(x, y, self.r.game_running)?;
         let c = ITEMS[i].0;
         self.menu.chosen = Some((i, self.menu.clock));
@@ -202,6 +234,22 @@ impl Session<'_> {
         if open {
             self.menu.clock += dt;
         }
+        // H2344: the opening's end delivers the input held during it, in order (the rest dropped once the menu closes)
+        if open && !self.menu.pending.is_empty() && !self.menu.opening() {
+            for ev in std::mem::take(&mut self.menu.pending) {
+                if !self.r.menu_open {
+                    break;
+                }
+                match ev {
+                    MenuInput::Move(x, y) => {
+                        self.menu_hover(x, y);
+                    }
+                    MenuInput::Click(x, y) => {
+                        self.menu_click(x, y);
+                    }
+                }
+            }
+        }
         let c = self.menu.clock;
         self.menu.sounds.retain(|&(_, t)| c - t < 3000);
     }
@@ -228,12 +276,18 @@ impl Session<'_> {
         let top_t = self.menu.top.map_or(0, |t| self.menu.clock - t);
         let right_t = self.menu.right_time();
         let mid_t = self.menu.clock.saturating_sub(self.menu.rest_start());
+        // H2341: during the first opening's LEFTmain.mov intro only LEFTmain (and RIGHT.mov at its start, black) shows —
+        // MIDloop.mov and TOPro.mov come with the rest at LEFTmain's end (C290; the original's shot fo-226 c049.9)
+        let intro = self.menu.first && self.menu.clock < self.menu.rest_start();
         for (asset, x, y, t, looped) in [
             (LEFT.0, LEFT.1, LEFT.2, self.menu.left_time(), false),
             (MID.0, MID.1, MID.2, mid_t, true),
             (TOP.0, TOP.1, TOP.2, top_t, true),
             (RIGHT.0, RIGHT.1, RIGHT.2, right_t, false),
         ] {
+            if intro && (asset == MID.0 || asset == TOP.0) {
+                continue;
+            }
             if let Some((px, w, h)) = self.menu_movie(asset, t, looped) {
                 put(&mut fb, x, y, &px, w, h);
             }

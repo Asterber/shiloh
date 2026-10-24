@@ -462,15 +462,19 @@ pub const FULL_SCREEN_LAYOUTS: [u32; 4] = [0x14269, 0x142ca, 0xc24a, 0xc51c];
 /// Draw every UI layer (called by `Session::render` after the View and its region pictures).
 pub fn draw(s: &mut Session, fb: &mut [u8]) {
     debug_assert_eq!(fb.len(), SCREEN_W * SCREEN_H * 3);
-    draw_captions(s, fb);
-    draw_video_text(s, fb);
+    // H2340: the captions / video texts of the paused game's movie stay under a full-screen menu layout (H407) — its
+    // picture covers the movie area
+    let screen = s.r.w.layouts().iter().any(|l| FULL_SCREEN_LAYOUTS.contains(&l.0));
+    if !(screen && s.r.w.rules.h2340_menu_screen_pauses) {
+        draw_captions(s, fb);
+        draw_video_text(s, fb);
+    }
     draw_item_texts(s, fb);
     super::computer::draw(s, fb); // H570–H578: the FBI computer's texts
     super::doc::draw_documents(s, fb); // H530: XT/*.xtx document texts (journal, Bible, notes)
     super::pda::draw_note_pad(s, fb); // H624
     // HYPOTHESIS H407 (display, not traced): the menu's full-screen layouts (save 0x14269, load 0x142ca, options 0xc24a,
     // help 0xc51c) cover the icon bars and the dialogue box
-    let screen = s.r.w.layouts().iter().any(|l| FULL_SCREEN_LAYOUTS.contains(&l.0));
     if !screen {
         draw_bars(s, fb);
         if !s.r.w.rules.h500_layouts_over_dbox {

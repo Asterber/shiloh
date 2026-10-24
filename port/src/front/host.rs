@@ -226,7 +226,8 @@ pub fn button(s: &mut Session, b: Button, at: Option<(i32, i32)>) -> Option<Stri
             Button::Right => None,
         };
     }
-    if let Some(v) = s.r.video_playing().filter(|_| !save_screen_shown(s)) {
+    // H2340: nor under a screen the menu opened (the game is paused there; its video takes no click, no right-click skip)
+    if let Some(v) = s.r.video_playing().filter(|_| !save_screen_shown(s) && !s.r.menu_screen_up()) {
         // H1900: the left click goes through the hit chain, whose playing player (H452) takes the movie area
         let rules = s.r.w.rules;
         let chain = rules.h1900_video_click_hit_chain && rules.h452_video_player_hit && rules.h130_hit_chain;

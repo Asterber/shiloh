@@ -2,11 +2,21 @@
 
 Each release has a section `## X.Y.Z`; `tools/release/release.sh` takes the release notes from it.
 
+## 0.3.1
+
+- The finale's action scenes show the original's cursor while a click counts: the fist over the button that traps
+  Mulder and in the scenes with Cook, the stiletto over Cook when it is held. Before, the cursor never changed, so it
+  was hard to tell when to click. The known issue of the earlier releases ("the last chase with Mulder cannot be won
+  with normal clicks") is gone: the finale has been played through with normal clicks.
+- The game pauses while the menu's Options, Help, Save or Load screen is shown, as in the original: its movie, sound
+  and subtitles no longer go on under that screen.
+- The main menu's opening (the X logo forming, then the items fading in) shows alone and takes no mouse input until
+  it ends, as in the original; clicks made meanwhile are handled when it ends.
+
 ## 0.3.0
 
-- The German 7-CD release: Shiloh now knows its program build (1.00.19). A complete playthrough on it hasn't been
-  done yet. Before, after New Game the
-  opening's movies ran one after another instead of together, so for a long time nothing seemed to happen (likely
+- The German 7-CD release: Shiloh now knows its program build (1.00.19), and the game has been played through on it
+  from start to finish. Before, after New Game the opening's movies ran one after another instead of together, so for a long time nothing seemed to happen (likely
   also why some movies seemed missing), and the computer searches, phone, cheats and e-mail replies did nothing.
 - German game data: German is the only game language, its texts show their umlauts. Its movies carry no subtitles,
   so Settings no longer shows a Subtitles switch that does nothing; with an English subtitle pack (or an English copy

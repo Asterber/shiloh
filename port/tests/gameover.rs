@@ -103,6 +103,11 @@ fn c255_no_goes_to_the_main_menu_and_return_starts_a_new_game() {
         assert!(s.r.menu_open, "NO → the main menu");
         assert!(!s.r.game_running, "no game running (no Save item, no return.pic)");
         assert_eq!(host::request(s), None);
+        // H2344: this session began at a save, no menu shown before, so this menu plays the first opening (C290),
+        // which takes no pointer input until its end
+        while s.menu.opening() {
+            s.tick(100);
+        }
         // "Return" (555,240) with no game running = New Game (C243)
         s.hover_at(555, 240);
         s.menu_click(555, 240);

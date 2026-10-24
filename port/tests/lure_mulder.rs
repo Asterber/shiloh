@@ -111,3 +111,60 @@ fn c309_red_button_after_its_window_does_nothing() {
     assert!(s.r.posts.iter().any(|m| m.action == 0xb30f), "Timer 10 → the gravestone");
     assert!(!s.r.posts.iter().any(|m| m.action == 0xb338), "no 'Mulder trapped'");
 }
+
+/// The finale by hand (H2351): the hand lure as C308, the stiletto from the bar during 'Mulder trapped' (C220's P3),
+/// Cook at the blast door (View 0xb340) stabbed at hotspot 462 as C220 (13 s after the turn) → sc122AD 0x5b8a, no
+/// gravestone — normal clicks only, no AI icon.
+#[test]
+fn h2351_finale_by_hand_chase_trap_stiletto_cook() {
+    use xf::front::cursor::{self, Shape};
+    let Some((h, g)) = data() else { return };
+    let mut s = to_trap(&h, &g).unwrap();
+    tick(&mut s, 1500);
+    click(&mut s, 440, 290);
+    tick(&mut s, 2000);
+    assert_eq!(s.r.w.view, Some(0xb321), "Mulder trapped");
+    host::motion(&mut s, Some((20, 440)));
+    tick(&mut s, 900);
+    click(&mut s, 456, 440);
+    tick(&mut s, 400);
+    host::motion(&mut s, Some((300, 380)));
+    assert_eq!(s.r.w.vars.get(0x15a), Some(0x17), "the stiletto held");
+    for _ in 0..3000 {
+        if s.r.w.view == Some(0xb340) {
+            break;
+        }
+        tick(&mut s, 16);
+    }
+    assert_eq!(s.r.w.view, Some(0xb340), "Cook at the blast door");
+    tick(&mut s, 13000);
+    host::motion(&mut s, Some((153, 190)));
+    assert_eq!(cursor::shape(&s), Some(Shape::Game(0xe2ef)), "the stiletto cursor over Cook");
+    click(&mut s, 153, 190);
+    tick(&mut s, 1000);
+    assert!(s.r.media_log.iter().any(|m| m.1 == 0x5b8a && m.2 == 1), "sc122AD: Cook stabbed");
+    assert!(!s.r.posts.iter().any(|m| m.action == 0xb30f), "no gravestone");
+}
+
+/// H2350 (fo-264 / fo-265): over the red button the cursor is the fist 0x4454 only while hotspot 451's target is live
+/// (0.633–2.567 s of the movie); before and after it, beside the button and with the rule off, the crosshair.
+#[test]
+fn h2350_fist_cursor_over_the_red_button_in_its_window() {
+    use xf::front::cursor::{self, Shape};
+    let Some((h, g)) = data() else { return };
+    let mut s = to_trap(&h, &g).unwrap();
+    host::motion(&mut s, Some((440, 290)));
+    tick(&mut s, 200);
+    assert_eq!(cursor::shape(&s), Some(Shape::Win(cursor::WIN_CROSSHAIR)), "before the window");
+    tick(&mut s, 1300);
+    assert_eq!(cursor::shape(&s), Some(Shape::Game(0x4454)), "in the window: the fist");
+    host::motion(&mut s, Some((300, 200)));
+    assert_eq!(cursor::shape(&s), Some(Shape::Win(cursor::WIN_CROSSHAIR)), "beside the button");
+    host::motion(&mut s, Some((440, 290)));
+    s.r.w.rules.h2350_movie_hot_cursor = false;
+    assert_eq!(cursor::shape(&s), Some(Shape::Win(cursor::WIN_CROSSHAIR)), "rule off");
+    s.r.w.rules.h2350_movie_hot_cursor = true;
+    tick(&mut s, 3000);
+    assert_eq!(s.r.w.view, Some(0xb2fe));
+    assert_eq!(cursor::shape(&s), Some(Shape::Win(cursor::WIN_CROSSHAIR)), "after the window");
+}
