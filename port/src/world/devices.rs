@@ -813,7 +813,10 @@ impl Runner<'_> {
             MenuChoice::Options => self.w.engine_layout(0xc24a, 0),
             MenuChoice::Help => self.w.engine_layout(0xc51c, 0),
             // H1703: Return unfreezes the game — a frozen game (H1520) runs again
-            MenuChoice::Resume => self.unfreeze(),
+            MenuChoice::Resume => {
+                self.unfreeze();
+                self.apply_prefs(); // C311: the menu's Return applies the Preferences
+            }
             MenuChoice::New | MenuChoice::Quit => {}
         }
         self.log.push(format!("H169: menu {c:?}"));

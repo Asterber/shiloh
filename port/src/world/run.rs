@@ -1470,6 +1470,12 @@ impl<'a> Runner<'a> {
             return;
         }
         self.w.vars.set_native(super::icons::VAR_CLOSED_CAPTIONING, Some(on as i32), 2);
+        self.cc_relayout();
+    }
+
+    /// H343: the placed icons of bars 1–3 placed again from the start the captioning mode gives, in placement order
+    /// (FUN_004684b0; with [`super::Rules::h343_cc_relayout`]).
+    fn cc_relayout(&mut self) {
         if !self.w.rules.h343_cc_relayout || !self.w.rules.h150_icon_bars {
             return;
         }
@@ -1485,6 +1491,25 @@ impl<'a> Runner<'a> {
         }
         for o in again {
             self.place_icon(o);
+        }
+    }
+
+    /// C311 (`traces/fo-266.jsonl`, `traces/fo-267.jsonl`): the in-game menu's Return applies the Preferences
+    /// (the routine the Load / New Game start runs too): the AI icon refreshed, the captions' bars
+    /// re-placed (the movies' text tracks follow the variable in the port anyway) and the
+    /// inventory row shown with Pref_cInventory 'V' / hidden with 'H' (its tail: FUN_00452760(bar, 1 / 0)). The volume
+    /// (FUN_0046a0e0) is read live by the fronts; Subliminal Messages / Smooth Text / Translucency are not modelled.
+    pub fn apply_prefs(&mut self) {
+        if !self.w.rules.c311_menu_return_prefs {
+            return;
+        }
+        self.ai_icon_refresh();
+        self.cc_relayout();
+        if self.w.rules.h170_inv_panel {
+            let shown = !self.w.inventory_hides();
+            // the row follows the pref: 'V' every active item placed, 'H' the row hidden (the selected item stays)
+            self.inv_panel = !shown;
+            self.panel_set(shown);
         }
     }
 

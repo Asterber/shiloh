@@ -1288,6 +1288,13 @@ pub struct Rules {
     /// so its picture is drawn there). Off: the bar stays on the first slot whichever slot is selected (bug report
     /// from the web front: "only the first save can be chosen")
     pub h2280_save_slot_bar: bool,
+    /// C311 (`traces/fo-266.jsonl`, `traces/fo-267.jsonl`): the in-game menu's Return applies the Preferences
+    /// (its Return branch runs the routine the Load / New Game start runs too): the AI icon
+    /// refreshed (taken out with the pref off, placed with it on), the captions' bars re-placed and the inventory row shown / hidden by Pref_cInventory ('V' / 'H'); and the
+    /// Options' "Return to main menu" (ReturnMainMenu) writes the Preferences to the host's (the
+    /// registry, FUN_004890f0). Off: an Options change shows only after the next Load / New Game / Alt key and is kept
+    /// by the host only after a Save (the port before)
+    pub c311_menu_return_prefs: bool,
 }
 
 impl Rules {
@@ -1473,6 +1480,7 @@ impl Rules {
             h2120_history_row_colour: true,
             h2100_load_host_prefs: true,
             h2340_menu_screen_pauses: true,
+            c311_menu_return_prefs: true,
             c301_gunsight_cursor: true,
             c302_item_cursor_reaction: true,
             h2350_movie_hot_cursor: true,
@@ -1760,6 +1768,8 @@ pub struct World<'a> {
     pub save_slot: usize,
     /// H403: the slot names (the front-end fills them from its saves directory)
     pub save_names: [String; 3],
+    /// C311: ReturnMainMenu wrote the Preferences to the host's (the front keeps them, as after a Save)
+    pub prefs_written: bool,
     /// H403: the typed name buffer (None = nothing typed since the slot was selected)
     pub save_edit: Option<String>,
     /// H403: SaveKeyPress ran without a known key (a replayed trace): the typed name is unknown, not empty
@@ -1978,6 +1988,7 @@ impl<'a> World<'a> {
             save_from_menu: false,
             save_slot: 0,
             save_names: Default::default(),
+            prefs_written: false,
             save_edit: None,
             save_name_unknown: false,
             restored_players: Default::default(),

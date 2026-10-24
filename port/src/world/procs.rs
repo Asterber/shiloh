@@ -677,7 +677,13 @@ impl<'a> World<'a> {
             ("PswdConnect", &[var, ..]) if r.h191_login => self.pswd_connect(action, var),
             ("PwbkOK", &[var, ..]) if r.h191_login => self.pwbk_ok(action, var),
             ("LoginInit", &[0x50, ..]) if r.h191_login => self.login_init_p(),
-            ("ReturnMainMenu" | "ReturnFromHelp", _) if r.h191_login => self.out.push(Out::MainMenu { action }),
+            ("ReturnMainMenu" | "ReturnFromHelp", _) if r.h191_login => {
+                // C311 (fo-266 `prefs_to_reg`): ReturnMainMenu (FUN_00490450) writes the Preferences to the registry
+                if name == "ReturnMainMenu" && r.c311_menu_return_prefs {
+                    self.prefs_written = true;
+                }
+                self.out.push(Out::MainMenu { action })
+            }
             // ---- H730 (`shootout.rs`) before H192 ---------------------------------------------------------------
             ("DoSmolShootout" | "SmolGoonShot1" | "SmIsWillShot1" | "SmGoonShoots", _)
                 if r.h730_smol_shootout && self.smol_proc(action, name, args) => {}

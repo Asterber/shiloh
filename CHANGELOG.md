@@ -2,6 +2,13 @@
 
 Each release has a section `## X.Y.Z`; `tools/release/release.sh` takes the release notes from it.
 
+## 0.3.2
+
+- The game's Options take effect when you return to the game from the menu, as in the original: the Artificial
+  Intuition icon appears or goes, captions switch and the icon bars move, the inventory bar shows or hides. Before,
+  some of them only changed after a restart or a Load.
+- Changed Options are kept when you leave the Options screen (as the original keeps them), not only after a save.
+
 ## 0.3.1
 
 - The finale's action scenes show the original's cursor while a click counts: the fist over the button that traps

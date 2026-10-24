@@ -528,6 +528,10 @@ impl<'a> Session<'a> {
 
     /// H403: the save screens' requests — a Save writes `<saves>/<name>.x`, a Load is left for the host (`load_req`).
     fn save_requests(&mut self) {
+        // C311: the Options' "Return to main menu" wrote the Preferences to the host's (the original's registry)
+        if std::mem::take(&mut self.r.w.prefs_written) {
+            self.save_host_prefs();
+        }
         for req in std::mem::take(&mut self.r.save_req) {
             match req {
                 crate::world::Out::SaveGame { slot, name } => {
