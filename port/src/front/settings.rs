@@ -131,11 +131,11 @@ pub const OPTIONS: &[Opt] = &[
     Opt {
         key: "game_lang",
         label: "Game language",
-        kind: Kind::List(&[("ru", "Russian (RU 1.00)"), ("en", "English (EN DVD)"), ("de", "German (DE CDs)")]),
+        kind: Kind::List(&[("ru", "Russian (RU 1.00)"), ("en", "English (EN DVD)"), ("de", "German (DE CDs)"), ("fr", "French (EN DVD)")]),
         hint: "",
         fronts: Fronts::Both,
         web_kind: None,
-        help: "voices and the game's own text (Session::set_game_lang; English needs --en-data DIR, H1836)",
+        help: "voices and the game's own text: every language of the discs given (Session::set_game_lang; English needs --en-data DIR, H1836; French: the EN DVD's French folder, H2374 / H2380)",
     },
     Opt {
         key: "long_timers",
@@ -437,8 +437,9 @@ impl Settings {
                 let on = self.captions().unwrap_or_else(|| s.r.w.closed_captioning());
                 s.r.set_closed_captioning(on);
                 let why = if on && s.no_subtitles(&crate::media::subs::packs_in(crate::media::pcmcache::dir().as_deref())) {
-                    " (H2323: the German movies carry no subtitles of their own, only a few English sound-effect \
-                     captions; English subtitles need an English pack, xf-prep --en-subs, or an English copy, --en-data)"
+                    " (H2323 / H2375: the German / French movies carry no subtitles of their own, only a few English \
+                     sound-effect captions; English subtitles need an English pack, xf-prep --en-subs, or an English \
+                     copy, --en-data)"
                 } else {
                     ""
                 };
@@ -450,7 +451,13 @@ impl Settings {
             }),
             // H1755: the game's data set (voices + texts) — the engine hook; Err while only the installed set exists
             "game_lang" => Some(match s.set_game_lang(self.get("game_lang")) {
-                Ok(()) => format!("game language {}", self.get("game_lang")),
+                Ok(()) => {
+                    let v = self.get("game_lang");
+                    match s.game_lang_labels().into_iter().find(|l| l.0 == v) {
+                        Some((_, t)) => format!("game language {v}: {t}"),
+                        None => format!("game language {v}"),
+                    }
+                }
                 Err(e) => format!("game language: {e}"),
             }),
             "long_timers" => {
@@ -637,6 +644,13 @@ pub fn choices(s: &Session, packs: &[&str]) -> Vec<(&'static str, Vec<&'static s
     v
 }
 
+/// H2380: the labels of the values that depend on the game data, where they say more than the option's own: the game
+/// languages, each with its edition and source ([`Session::game_lang_labels`]: "French — EN DVD Edition 2.05
+/// (XFILES1.mdf, Francais)").
+pub fn choice_labels(s: &Session) -> Vec<(&'static str, Vec<(&'static str, String)>)> {
+    vec![("game_lang", s.game_lang_labels())]
+}
+
 /// The window's settings screen: open / hovered row; the host owns the [`Settings`].
 #[derive(Clone, Debug, Default)]
 pub struct SettingsUi {
@@ -645,6 +659,8 @@ pub struct SettingsUi {
     pub focus: Option<(i32, i32)>,
     /// H2305: the values offered per data-dependent option ([`choices`]); one value = the row is not shown
     pub choices: Vec<(&'static str, Vec<&'static str>)>,
+    /// H2380: the labels of data-dependent values ([`choice_labels`]); others: the option's own
+    pub labels: Vec<(&'static str, Vec<(&'static str, String)>)>,
     pub hover: Option<(i32, i32)>,
     /// the volume bar is being dragged
     drag: bool,
@@ -653,7 +669,23 @@ pub struct SettingsUi {
 impl SettingsUi {
     /// The screen opened over the session `s` (only the choices its data has, [`choices`]).
     pub fn opened(s: &Session) -> SettingsUi {
-        SettingsUi { open: true, choices: choices(s, &crate::media::subs::packs_in(crate::media::pcmcache::dir().as_deref())), focus: s.mouse, ..Default::default() }
+        SettingsUi {
+            open: true,
+            choices: choices(s, &crate::media::subs::packs_in(crate::media::pcmcache::dir().as_deref())),
+            labels: choice_labels(s),
+            focus: s.mouse,
+            ..Default::default()
+        }
+    }
+
+    /// The label of `key`'s current value: the data's own ([`choice_labels`]) when it has one, else the option's.
+    pub fn value_label(&self, set: &Settings, key: &str) -> String {
+        let v = set.get(key);
+        self.labels
+            .iter()
+            .find(|l| l.0 == key)
+            .and_then(|l| l.1.iter().find(|x| x.0 == v))
+            .map_or_else(|| set.label(key), |x| x.1.clone())
     }
 
     /// The values offered for `key` (None = every value of the option).
@@ -748,7 +780,14 @@ impl SettingsUi {
                 fill(&mut fb, val[0] + 1, val[1] + 5, val[0] + 1 + w.max(0), val[3] - 5, ACCENT);
                 label(&mut fb, val[2] - 40, row[1] + 3, &set.label(o.key), FG);
             } else {
-                label(&mut fb, val[0] + 6, row[1] + 3, &set.label(o.key), FG);
+                // H2380: a long label (a game language's edition and source) is shortened in the box; the help line
+                // shows it whole while the row is hovered
+                let full = self.value_label(set, o.key);
+                let t = fit_label(&full, val[2] - val[0] - 10);
+                if hot && t != full {
+                    help = Some(full.clone());
+                }
+                label(&mut fb, val[0] + 6, row[1] + 3, &t, FG);
             }
             if !o.hint.is_empty() {
                 label(&mut fb, HINT_X, row[1] + 3, o.hint, DIM);
@@ -837,6 +876,39 @@ fn put(fb: &mut [u8], x: i32, y: i32, px: &[u8], w: usize, h: usize) {
     super::menu::put(fb, x, y, px, w, h)
 }
 
+/// The width of a label in pixels ([`label`]'s font).
+fn label_width(s: &str) -> i32 {
+    match super::text::arial12() {
+        Some(f) => f.width(s),
+        None => s.chars().count() as i32 * 6,
+    }
+}
+
+/// H2380: `s` fitted into `w` pixels: whole; else without the edition ("French — EN DVD Edition 2.05 (X.mdf)" →
+/// "French (X.mdf)"); else cut with an ellipsis.
+fn fit_label(s: &str, w: i32) -> String {
+    if label_width(s) <= w {
+        return s.to_string();
+    }
+    let t = match (s.split_once(" \u{2014} "), s.find(" (")) {
+        (Some((lang, _)), Some(i)) => format!("{lang}{}", &s[i..]),
+        (Some((lang, _)), None) => lang.to_string(),
+        _ => s.to_string(),
+    };
+    let mut c: Vec<char> = t.chars().collect();
+    if label_width(&t) <= w {
+        return t;
+    }
+    while c.len() > 1 {
+        c.pop();
+        let u: String = c.iter().collect::<String>() + "\u{2026}";
+        if label_width(&u) <= w {
+            return u;
+        }
+    }
+    t
+}
+
 /// Text in Arial 12 (the tiny overlay font when the system has no Arial).
 pub(super) fn label(fb: &mut [u8], x: i32, y: i32, s: &str, c: [u8; 3]) {
     match super::text::arial12() {
@@ -852,6 +924,17 @@ pub(super) fn label(fb: &mut [u8], x: i32, y: i32, s: &str, c: [u8; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// H2380: a long value label is shortened for the window's value box: the edition goes first, then an ellipsis.
+    #[test]
+    fn h2380_fit_label() {
+        let full = "French \u{2014} EN DVD Edition 2.05 (XFILES1.mdf, Francais)";
+        assert_eq!(fit_label(full, 10_000), full);
+        let short = "French (XFILES1.mdf, Francais)";
+        assert_eq!(fit_label(full, label_width(short)), short);
+        let cut = fit_label(full, label_width("French (XF"));
+        assert!(cut.starts_with("French") && cut.ends_with('\u{2026}') && label_width(&cut) <= label_width("French (XF"));
+    }
 
     #[test]
     fn text_round_trip() {

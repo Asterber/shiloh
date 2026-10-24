@@ -90,7 +90,11 @@ fn src_text(s: &Session, src: &Src) -> String {
     }
 }
 
+/// The item's region, or where a RelocateIFace moved it (H179; H2401: the ING record's labels in French over RU data)
 fn item_rect(s: &Session, item: u32) -> Option<[i32; 4]> {
+    if let Some(r) = s.r.w.px.item_rects.get(&item) {
+        return Some(r.map(|v| v as i32));
+    }
     match s.r.w.h.read(crate::world::class::INTERFACE_ITEM, item)?.field("region")? {
         crate::hdb::Value::Region { rect, .. } => Some(rect.map(|v| v as i32)),
         _ => None,

@@ -2,6 +2,26 @@
 
 Each release has a section `## X.Y.Z`; `tools/release/release.sh` takes the release notes from it.
 
+## 0.3.3
+
+- The French edition on the English DVD Edition image (its `Francais` folder): French is now the second game language
+  there — F4, Settings → Game language, `--game-lang fr`, or `?game-lang=fr` in the browser switch voices, movies,
+  texts and the interface pictures between English and French. English stays the default. The game has been played
+  through in French from start to finish.
+- Every language of every disc you give is offered as a game language: the Russian game with the English DVD
+  Edition image as `--en-data` offers Russian, English and French (F4 goes through all of them). The settings name
+  each language's edition and where it comes from, e.g. "French — EN DVD Edition 2.05 (XFILES1.mdf, Francais)".
+- `--data /path/to/Francais` alone works (before, the French folder had to be given as three folders in a fixed order,
+  `MININST`, `MEDINST`, then `Francais`).
+- Accented letters of the game's own text (French, also German umlauts) show correctly in the dialogue box, item texts
+  and roll-over texts; before, they came out as Cyrillic letters.
+- French over the Russian release: the French interface pictures with the French screen layout (the computer's
+  buttons, the Help and Options screens); the search after the Tarakan fingerprints' e-mail works in French.
+- Pictures made of several bands (the e-mail and APB screens, about 25 document close-ups such as the lab report)
+  no longer lose their lower part: it was black in every language.
+- The lips cursor shows over a character only where a click starts a conversation, as in the original; before, it
+  showed over every character.
+
 ## 0.3.2
 
 - The game's Options take effect when you return to the game from the menu, as in the original: the Artificial

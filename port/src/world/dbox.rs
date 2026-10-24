@@ -391,14 +391,16 @@ impl<'a> World<'a> {
 
     /// H262: the text of a line's asset (the first enabled AssetRef of the Conversation's f2c list) as characters (kind
     /// 0: XfilesT.dll string, H260 — e.g. 0x44a1 = string 13; kind 4: the blob's cp1251 bytes, one
-    /// character each — only the count and the spaces matter for the layout)
+    /// character each — only the count and the spaces matter for the layout). H2376: the kind-4 bytes come decoded
+    /// here (one char per byte), the strings as they are — the Latin-1 letters of an English / German / French string
+    /// (é, ü …) are not cp1251 bytes.
     pub fn line_text(&self, a: u32) -> Option<Vec<char>> {
         let r = self.h.read(class::ASSET_REF, a)?;
         if r.u32("f40") & 7 == 4 {
             let b = self.h.blob_bytes(r.blob("asset")?)?;
             let n = *b.first()? as usize;
             let len: usize = std::str::from_utf8(b.get(1..1 + n)?).ok()?.parse().ok()?;
-            return Some(b.get(1 + n..1 + n + len)?.iter().map(|&x| x as char).collect());
+            return Some(b.get(1 + n..1 + n + len)?.iter().map(|&x| cp1251(x as char)).collect());
         }
         super::devices::asset_text(self, a).map(|t| t.chars().collect())
     }
@@ -411,7 +413,7 @@ impl<'a> World<'a> {
             .iter()
             .map(|&(c, r)| {
                 let a = convs.iter().find(|x| x.0 == c).and_then(|x| x.1);
-                let t: String = a.and_then(|a| self.line_text(a)).map(|v| v.into_iter().map(cp1251).collect()).unwrap_or_default();
+                let t: String = a.and_then(|a| self.line_text(a)).map(|v| v.into_iter().collect()).unwrap_or_default();
                 (c, r, t)
             })
             .collect()

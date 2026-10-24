@@ -458,13 +458,45 @@ impl World<'_> {
                 return;
             }
         }
-        let Some(r) = self.h.read(class::CHAR_VIEW, cv) else { return };
-        let f48 = r.u32("f48");
-        let talk = f48 != 0
-            && self.h.list_of(class::CONVERSATION_LIST, f48).into_iter().any(|c| self.is_enabled(class::CONVERSATION, c));
-        if talk || self.char_view_has_ideas(cv) {
+        if self.char_view_talks(cv) {
             self.display_dbox(cv);
         }
+    }
+
+    /// H155: the CharView has something to talk about — an enabled Conversation of its f48 VCConversationList or an
+    /// enabled IdeaIcon (`char_view_has_ideas`); the click's DisplayDBox and the cursor pick (H2385) test this.
+    pub fn char_view_talks(&self, cv: u32) -> bool {
+        let f48 = self.h.read(class::CHAR_VIEW, cv).map_or(0, |r| r.u32("f48"));
+        let talk = f48 != 0
+            && self.h.list_of(class::CONVERSATION_LIST, f48).into_iter().any(|c| self.is_enabled(class::CONVERSATION, c));
+        talk || self.char_view_has_ideas(cv)
+    }
+
+    /// H2393: the CharView a CharTeleport of `cv`'s Mouse Click triggers leads to, when it has something to talk about.
+    /// The first type-6 CharTeleport among the event-0 triggers' actions (conditions not tested), its View argument →
+    /// the enabled member of that View's f30 with `cv`'s character key f28 (as H183's travel); None when there is no
+    /// CharTeleport, no such member, or the member has nothing to talk about (`char_view_talks`).
+    pub fn char_teleport_talker(&self, cv: u32) -> Option<u32> {
+        use super::action::{Action, ProcCall};
+        let r = self.h.read(class::CHAR_VIEW, cv)?;
+        let key = r.u32("f28");
+        let view = self.h.list_of(class::TRIGGER_LIST, r.u32("f54")).into_iter().find_map(|t| {
+            let tr = self.h.read(class::TRIGGER, t).filter(|tr| tr.u32("fe8") == event::MOUSE_CLICK as u32)?;
+            self.h.list_of(class::ACTION_LIST, tr.u32("fe4")).into_iter().find_map(|a| {
+                let x = Action::load(self.h, a).filter(|x| x.kind() == 6)?;
+                ProcCall::parse(x.body()).filter(|p| p.name == "CharTeleport" && p.args.len() >= 6).map(|p| p.args[5])
+            })
+        })?;
+        let list = self.h.read(class::VIEW, view).map_or(0, |v| v.u32("f30"));
+        let target = self.h.list_of(class::CHAR_VIEW_LIST, list).into_iter().find(|&c| {
+            self.h.read(class::CHAR_VIEW, c).is_some_and(|m| m.u32("f28") == key) && self.is_enabled(class::CHAR_VIEW, c)
+        })?;
+        self.char_view_talks(target).then_some(target)
+    }
+
+    /// H126: the CharView whose dialogue box exists (shown or hidden), if any
+    pub fn dbox_char_view(&self) -> Option<u32> {
+        self.dbox.as_ref().map(|d| d.0)
     }
 
     /// H155: an enabled IdeaIcon (table 9) named by f28 of a VCIdeaMap of the CharView's f4c VCIdeaMapList.

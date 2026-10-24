@@ -250,7 +250,7 @@ fn draw_rollover_text(s: &mut Session, fb: &mut [u8], o: u32, r: [i16; 4]) {
         return;
     }
     let Some(t) = s.r.w.icon_rollover(o).1.and_then(|a| s.r.w.line_text(a)) else { return };
-    let t: String = t.into_iter().map(dbox_cp1251).collect();
+    let t: String = t.into_iter().collect();
     let Some(f) = super::text::arial12() else {
         let w = t.chars().count() as i32 * 8;
         let x = ((r[0] as i32 + r[2] as i32) / 2 - w / 2).clamp(3, (SCREEN_W as i32 - w).max(3));
@@ -275,7 +275,11 @@ pub const ITEM_TEXT: [u8; 3] = [0, 0, 0];
 pub const SLOT_TEXT: [u8; 3] = [255, 255, 255];
 const SLOT_ITEMS: [u32; 6] = [0x1427c, 0x1427d, 0x1427e, 0x1438a, 0x1438b, 0x1438c];
 
+/// The item's region, or where a RelocateIFace moved it (H179; H2401: the ING record's labels in French over RU data)
 fn item_rect(s: &Session, item: u32) -> Option<[i32; 4]> {
+    if let Some(r) = s.r.w.px.item_rects.get(&item) {
+        return Some(r.map(|v| v as i32));
+    }
     match s.r.w.h.read(crate::world::class::INTERFACE_ITEM, item)?.field("region")? {
         crate::hdb::Value::Region { rect, .. } => Some(rect.map(|v| v as i32)),
         _ => None,
@@ -349,19 +353,9 @@ pub fn draw_item_texts(s: &mut Session, fb: &mut [u8]) {
         }
         let Some(t) = s.r.w.line_text(a) else { continue };
         let Some(r) = item_rect(s, item) else { continue };
-        let t: String = t.into_iter().map(dbox_cp1251).collect();
+        let t: String = t.into_iter().collect();
         let lines: Vec<String> = t.split("\r\n").flat_map(|x| x.split('\n')).map(String::from).collect();
         draw_text_in(fb, r, &lines, false, item == crate::world::devices::PHONE_DISPLAY, ITEM_TEXT);
-    }
-}
-
-/// kind-4 text blobs are cp1251 bytes read as Latin-1 chars → Cyrillic
-fn dbox_cp1251(c: char) -> char {
-    match c as u32 {
-        0xc0..=0xff => char::from_u32(0x410 + c as u32 - 0xc0).unwrap_or(c),
-        0xa8 => 'Ё',
-        0xb8 => 'ё',
-        _ => c,
     }
 }
 

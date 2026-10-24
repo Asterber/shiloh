@@ -71,6 +71,13 @@ pub struct Session<'a> {
     clips: HashMap<u32, Option<Clip>>,
     players: HashMap<PathBuf, Option<MoviePlayer>>,
     pffs: HashMap<PathBuf, Option<Pff>>,
+    /// H2390: the entry ranges of a laid-over picture container, from its header ([`Pff::ranges_of`])
+    pff_heads: HashMap<PathBuf, Option<Vec<(u64, u64)>>>,
+    /// H2390: whether a picture clip's entries (own file, first, last) equal the English data set's
+    pic_as_en: HashMap<(PathBuf, u32, u32), bool>,
+    /// H2401: the 2.05 HDB's button moves for French pictures over RU data, built once from the laid-over HDB (None: not
+    /// built yet or none)
+    lang_relocs: Option<Arc<crate::world::langlayout::LangRelocs>>,
     pictures: HashMap<u32, Option<Picture>>,
     /// C306: camera shots' pictures by (video AssetRef, f68, rect)
     shot_pictures: HashMap<(u32, u32, [i16; 4]), Option<Picture>>,
@@ -117,8 +124,12 @@ pub struct Session<'a> {
     pub rewind_t0: Option<u64>,
     /// H1836 (port feature): the game language — whose voice-over / movies / texts play ([`Session::set_game_lang`])
     pub game_lang: crate::media::lang::GameLang,
-    /// H1836: the English data set (`--en-data DIR`), None = only RU
-    pub en_data: Option<Arc<crate::media::lang::EnData>>,
+    /// H1836: the English data set (`--en-data DIR`); H2374: any data set of another language laid over the game data
+    /// (the EN DVD's `Francais/` over its `English/`), its language [`crate::media::lang::EnData::lang`]; H2380: every
+    /// one given, one per language, in the order offered (empty = only the game data's language)
+    pub overlays: Vec<Arc<crate::media::lang::EnData>>,
+    /// H2380: where the game data comes from, by names ([`crate::media::lang::source_name`]; the settings' label)
+    pub data_source: String,
     /// H2305: the language of the game data itself (`--data`; [`crate::media::lang::data_lang`]): RU 1.00 → Ru (an
     /// English data set can be laid over it), the EN DVD Edition → En (the only language then)
     pub data_lang: crate::media::lang::GameLang,
@@ -151,6 +162,9 @@ impl<'a> Clone for Session<'a> {
             clips: self.clips.clone(),
             players: HashMap::new(),
             pffs: HashMap::new(),
+            pff_heads: self.pff_heads.clone(),
+            pic_as_en: self.pic_as_en.clone(),
+            lang_relocs: self.lang_relocs.clone(),
             pictures: HashMap::new(),
             shot_pictures: HashMap::new(),
             sounds: self.sounds.clone(),
@@ -176,7 +190,8 @@ impl<'a> Clone for Session<'a> {
             intro: self.intro.clone(),
             rewind_t0: self.rewind_t0,
             game_lang: self.game_lang,
-            en_data: self.en_data.clone(),
+            overlays: self.overlays.clone(),
+            data_source: self.data_source.clone(),
             data_lang: self.data_lang,
             slot_lang: self.slot_lang.clone(),
             alt: self.alt.clone(),
@@ -248,6 +263,9 @@ impl<'a> Session<'a> {
             clips: HashMap::new(),
             players: HashMap::new(),
             pffs: HashMap::new(),
+            pff_heads: HashMap::new(),
+            pic_as_en: HashMap::new(),
+            lang_relocs: None,
             pictures: HashMap::new(),
             shot_pictures: HashMap::new(),
             sounds: HashMap::new(),
@@ -273,64 +291,213 @@ impl<'a> Session<'a> {
             av_delay: 0,
             rewind_t0: None,
             game_lang: data_lang,
-            en_data: None,
+            overlays: Vec::new(),
+            data_source: String::new(),
             data_lang,
             slot_lang: HashMap::new(),
             alt: Default::default(),
         }
     }
 
-    /// H1836: hand the session an English data set ([`crate::media::lang::EnData::open`]); None also switches back to
-    /// the game data's language. Ignored when the game data is English itself (H2305).
+    /// H1836: hand the session an English data set ([`crate::media::lang::EnData::open`]) — the only one laid over the
+    /// game data (H2380: replaces any given before); None also switches back to the game data's language. Ignored
+    /// when the game data is English itself (H2305) — H2374: when the data set is of the game data's own language (a
+    /// French data set over English data is taken).
     pub fn set_en_data(&mut self, en: Option<Arc<crate::media::lang::EnData>>) {
-        if self.data_lang == crate::media::lang::GameLang::En {
-            if en.is_some() {
-                self.log.push("H2305: the game data is English already: the English data set is not used".into());
+        let keep = self.game_lang;
+        match en {
+            None => self.overlays.clear(),
+            Some(en) => {
+                if !self.lang_data_fits(&en) {
+                    return;
+                }
+                self.overlays = vec![en];
             }
-            return;
         }
-        self.en_data = en;
-        let l = if self.en_data.is_some() { self.game_lang } else { self.data_lang };
+        let l = if self.overlay(keep).is_some() { keep } else { self.data_lang };
         let _ = self.set_lang(l);
+    }
+
+    /// H2380: lay one more language's data set over the game data (every language of every disc given: `--data`'s
+    /// other language folders, `--en-data`'s English and its other folders). Taken unless it is the game data's own
+    /// language (H2305) or a language already laid over (the first one stays). The game language is unchanged.
+    pub fn add_lang_data(&mut self, en: Arc<crate::media::lang::EnData>) -> bool {
+        if !self.lang_data_fits(&en) {
+            return false;
+        }
+        if self.overlays.iter().any(|o| o.lang == en.lang) {
+            self.log.push(format!("H2380: a {} data set is laid over already: {} is not used", en.lang.code(), en.source));
+            return false;
+        }
+        self.overlays.push(en);
+        true
+    }
+
+    fn lang_data_fits(&mut self, en: &crate::media::lang::EnData) -> bool {
+        if self.data_lang == en.lang {
+            let l = if en.lang == crate::media::lang::GameLang::En { "English" } else { en.lang.code() };
+            self.log.push(format!("H2305: the game data is {l} already: the {l} data set is not used"));
+            return false;
+        }
+        true
+    }
+
+    /// H2380: the data set laid over for `lang` (None for the game data's own language or one without data)
+    pub fn overlay(&self, lang: crate::media::lang::GameLang) -> Option<&Arc<crate::media::lang::EnData>> {
+        if lang == self.data_lang {
+            return None;
+        }
+        self.overlays.iter().find(|o| o.lang == lang)
     }
 
     /// H1836 (port feature, the settings' "game language"): switch the voice-over and the game's own texts, live. The
     /// core's logic runs on as before (the RU HDB, the RU media lengths); string-resource texts (dialogue lines, notes,
-    /// names) change at once, movies / sounds from their next start. Err (language unchanged) for English without an
-    /// English data set. The game data's own language (H2305) swaps nothing.
+    /// names) change at once, movies / sounds from their next start. Err (language unchanged) for a language without a
+    /// data set. The game data's own language (H2305) swaps nothing.
     pub fn set_lang(&mut self, lang: crate::media::lang::GameLang) -> Result<(), String> {
         use crate::media::lang::GameLang;
-        let strings = match (lang, &self.en_data) {
-            (l, _) if l == self.data_lang => None,
-            (GameLang::En, Some(en)) => Some(en.strings.clone()),
-            (GameLang::En, None) => return Err("no English data set (xf --en-data DIR)".into()),
-            (l, _) => {
-                return Err(format!("there is no {} data set (the game data is {})", l.code(), self.data_lang.code()))
+        let strings = match self.overlay(lang) {
+            _ if lang == self.data_lang => None,
+            Some(en) => Some(en.strings.clone()),
+            None if lang == GameLang::En => return Err("no English data set (xf --en-data DIR)".into()),
+            None => {
+                return Err(format!("there is no {} data set (the game data is {})", lang.code(), self.data_lang.code()))
             }
         };
         if self.game_lang != lang {
             self.log.push(format!("H1836: game language {}", lang.code()));
+            // H2374: the pictures decoded per asset / cursor come from the language's picture containers
+            if self.swaps_pics(self.game_lang) || self.swaps_pics(lang) {
+                self.pictures.clear();
+                self.cursor.frames.clear();
+            }
         }
         self.game_lang = lang;
         self.r.w.lang_strings = strings;
+        // H2390: scGameLanguage (SetLanguage) in the language of the pictures drawn — the HDB places the ING buttons by it
+        self.r.w.layout_strings = self.overlay(self.pic_lang()).map(|o| o.strings.clone());
+        // H2401: and the 2.05 HDB's own button moves for the French pictures over RU data
+        self.r.w.lang_relocs = if self.mixes_pics(self.game_lang) { self.lang_relocs() } else { None };
+        if let Some((a, v)) = self.r.w.set_language {
+            self.r.w.set_language_text(a, v);
+        }
         Ok(())
+    }
+
+    /// H2374: whether `lang`'s pictures come from its laid-over data set ([`Session::pic_file`]); H2390: also entry
+    /// by entry ([`Session::mixes_pics`])
+    fn swaps_pics(&self, lang: crate::media::lang::GameLang) -> bool {
+        (crate::media::lang::swaps_pictures(self.data_lang, lang) && self.overlay(lang).is_some()) || self.mixes_pics(lang)
+    }
+
+    /// H2390: RU data's interface pictures are the English ones (H1833: 2 of the 727 `x.pff` entries differ, none in
+    /// Russian), so a language whose pictures pair with English ([`crate::media::lang::swaps_pictures`]: the EN DVD's
+    /// French) takes its picture of each entry RU holds as English does — with both data sets laid over.
+    fn mixes_pics(&self, lang: crate::media::lang::GameLang) -> bool {
+        use crate::media::lang::{swaps_pictures, GameLang};
+        self.data_lang == GameLang::Ru
+            && lang != GameLang::En
+            && swaps_pictures(GameLang::En, lang)
+            && self.overlay(lang).is_some()
+            && self.overlay(GameLang::En).is_some()
+    }
+
+    /// H2401: the 2.05 HDB's button moves the RU HDB lacks ([`crate::world::langlayout::LangRelocs`]), from the HDB of
+    /// the game language's data set (the EN DVD's, the same file in both of its folders, H2373) — read once
+    fn lang_relocs(&mut self) -> Option<Arc<crate::world::langlayout::LangRelocs>> {
+        if self.lang_relocs.is_none() {
+            let p = self.overlay(self.game_lang).and_then(|o| o.index.find("xfiles.hdb")).cloned()?;
+            let other = match Hdb::open(&p) {
+                Ok(h) => h,
+                Err(e) => {
+                    self.log.push(format!("H2401: {}: {e:?}", p.display()));
+                    return None;
+                }
+            };
+            let lr = crate::world::langlayout::LangRelocs::from_hdbs(self.r.w.h, &other);
+            self.log.push(format!("H2401: {} items moved by the laid-over HDB", lr.items.len()));
+            self.lang_relocs = Some(Arc::new(lr));
+        }
+        self.lang_relocs.clone()
+    }
+
+    /// H2390: the language of the interface pictures drawn — the game language when its pictures are taken
+    /// ([`Session::pic_file`]), else the game data's
+    pub fn pic_lang(&self) -> crate::media::lang::GameLang {
+        if self.swaps_pics(self.game_lang) {
+            self.game_lang
+        } else {
+            self.data_lang
+        }
     }
 
     /// H1836: the file a clip plays from in `lang` — the English data set's file of the same name for a language
     /// resource ([`crate::media::lang::is_lang_key`]), else the RU file.
     pub fn lang_file(&self, c: &Clip, lang: crate::media::lang::GameLang) -> PathBuf {
-        if lang == crate::media::lang::GameLang::En && self.data_lang != lang {
-            if let Some(p) = self.en_data.as_ref().and_then(|en| en.index.lang_path(&c.name)) {
+        if let Some(en) = self.overlay(lang) {
+            if let Some(p) = en.index.lang_path(&c.name) {
                 return p.clone();
             }
         }
         c.file.clone()
     }
 
-    /// H2306: the language (code page) of the files [`Session::lang_file`] gives for `lang`: the English data set's
-    /// when it is laid over and `lang` is English, else the game data's own
+    /// H2374: the picture container (`x.pff`, `X7.PFF`, `XG/*.pff`) a picture clip is drawn from in the game
+    /// language: the laid-over data set's when the two share one HDB ([`crate::media::lang::swaps_pictures`]: the EN
+    /// DVD's English and French data), else the game data's. H2390: over RU data with the English and French sets laid
+    /// over, French takes the French file where the clip's entries equal the English set's ([`Session::mixes_pics`]).
+    pub fn pic_file(&mut self, c: &Clip) -> PathBuf {
+        let lang = self.game_lang;
+        let Some(p) = self.overlay(lang).and_then(|o| o.index.pic_path(&c.name)).cloned() else { return c.file.clone() };
+        if crate::media::lang::swaps_pictures(self.data_lang, lang) || (self.mixes_pics(lang) && self.pic_as_english(c, &p)) {
+            return p;
+        }
+        c.file.clone()
+    }
+
+    /// H2390: whether the entries of the picture clip `c` (its own file) are the English data set's of the same
+    /// index, byte for byte (H2402: or retouched, same picFrame as English and French), with `other` (the language's
+    /// file) of the same entry count — cached per clip
+    fn pic_as_english(&mut self, c: &Clip, other: &Path) -> bool {
+        let key = (c.file.clone(), c.start, c.end);
+        if let Some(&b) = self.pic_as_en.get(&key) {
+            return b;
+        }
+        let b = self.entries_as_english(c, other).unwrap_or(false);
+        self.pic_as_en.insert(key, b);
+        b
+    }
+
+    fn entries_as_english(&mut self, c: &Clip, other: &Path) -> Option<bool> {
+        let en = self.overlay(crate::media::lang::GameLang::En)?.index.pic_path(&c.name)?.clone();
+        let mut ranges = |p: &Path| self.pff_heads.entry(p.to_path_buf()).or_insert_with(|| Pff::ranges_of(p)).clone();
+        let (en_r, other_r) = (ranges(&en)?, ranges(other)?);
+        let own = self.pffs.entry(c.file.clone()).or_insert_with(|| Pff::open(&c.file).ok()).as_ref()?;
+        if own.len() != en_r.len() || other_r.len() != en_r.len() || own.is_empty() {
+            return Some(false);
+        }
+        for i in c.start as usize..=(c.end.max(c.start) as usize).min(own.len() - 1) {
+            let mine = own.entry(i)?;
+            let (s, e) = en_r[i];
+            if e - s == mine.len() as u64 && crate::io::read_range(&en, s, mine.len()).ok()? == mine {
+                continue;
+            }
+            // H2402: an entry RU retouched (H1833: the preferences page with its CC line, a photo note's date) is the
+            // same picture when its picFrame is the English and the French one's — the French one is drawn there too,
+            // so the page matches the French value pictures and layout around it
+            let frame = mine.get(2..10)?;
+            let other_frame = crate::io::read_range(other, other_r[i].0 + 2, 8).ok()?;
+            if crate::io::read_range(&en, s + 2, 8).ok()? != frame || other_frame != frame {
+                return Some(false);
+            }
+        }
+        Some(true)
+    }
+
+    /// H2306: the language (code page) of the files [`Session::lang_file`] gives for `lang`: the laid-over data set's
+    /// when there is one for `lang`, else the game data's own
     pub fn file_lang(&self, lang: crate::media::lang::GameLang) -> crate::media::lang::GameLang {
-        if lang == crate::media::lang::GameLang::En && self.en_data.is_some() {
+        if self.overlay(lang).is_some() {
             lang
         } else {
             self.data_lang
@@ -393,14 +560,33 @@ impl<'a> Session<'a> {
     }
 
     /// The game languages (voices + the game's own texts) this session can switch to now (H1755): the game data's own
-    /// (H2305), plus "en" once an English data set is laid over RU data (H1836, [`Session::set_en_data`]). Only these
-    /// are offered (the settings, F4); a language without data is not listed.
+    /// (H2305), plus the language of each data set laid over it (H1836 English over RU data, [`Session::set_en_data`];
+    /// H2380 every language of every disc given, [`Session::add_lang_data`]), in that order. Only these are offered
+    /// (the settings, F4); a language without data is not listed.
     pub fn game_langs(&self) -> Vec<&'static str> {
         let mut v = vec![self.data_lang.code()];
-        if self.en_data.is_some() && self.data_lang != crate::media::lang::GameLang::En {
-            v.push("en");
+        for o in &self.overlays {
+            if o.lang != self.data_lang && !v.contains(&o.lang.code()) {
+                v.push(o.lang.code());
+            }
         }
         v
+    }
+
+    /// H2380: the label of each of [`Session::game_langs`]: language — edition (source), the source by file / folder
+    /// names only ([`crate::media::lang::label`]).
+    pub fn game_lang_labels(&self) -> Vec<(&'static str, String)> {
+        self.game_langs()
+            .into_iter()
+            .map(|c| {
+                let l = crate::media::lang::GameLang::parse(c).unwrap_or_default();
+                let t = match self.overlay(l) {
+                    Some(o) => o.label(),
+                    None => crate::media::lang::label(l, self.r.w.h.exe.build, &self.data_source),
+                };
+                (c, t)
+            })
+            .collect()
     }
 
     /// The game language after the current one in [`Session::game_langs`] (F4); None when there is only one.
@@ -429,7 +615,8 @@ impl<'a> Session<'a> {
         use crate::media::lang::GameLang;
         let langs: &[&'static str] = match self.data_lang {
             GameLang::Ru => &["en", "ru"],
-            GameLang::De => &["en"],
+            // H2375: French data as German (no French captions in its movies)
+            GameLang::De | GameLang::Fr => &["en"],
             GameLang::En => &[],
         };
         let offered: Vec<&'static str> = langs.iter().copied().filter(|l| packs.contains(l)).collect();
@@ -444,8 +631,8 @@ impl<'a> Session<'a> {
     /// ([`Session::sub_langs`]). The settings then offer no "Subtitles" option, and switching the captions on says why
     /// nothing shows.
     pub fn no_subtitles(&self, packs: &[&str]) -> bool {
-        self.data_lang == crate::media::lang::GameLang::De
-            && self.en_data.is_none()
+        matches!(self.data_lang, crate::media::lang::GameLang::De | crate::media::lang::GameLang::Fr)
+            && self.overlay(crate::media::lang::GameLang::En).is_none()
             && self.sub_pack.is_none()
             && self.sub_langs(packs) == ["auto"]
     }
@@ -459,6 +646,8 @@ impl<'a> Session<'a> {
         r.asset_sizes = std::mem::take(&mut self.r.asset_sizes);
         r.w.live_rand = self.r.w.live_rand; // H550
         r.w.lang_strings = self.r.w.lang_strings.clone(); // H1836
+        r.w.layout_strings = self.r.w.layout_strings.clone(); // H2390
+        r.w.lang_relocs = self.r.w.lang_relocs.clone(); // H2401
         self.r = r;
         self.r.advance(self.now);
         self.heads.clear();
@@ -582,6 +771,10 @@ impl<'a> Session<'a> {
                     c.end = t.end;
                 }
             }
+        }
+        // H2374: a picture container of the game language (the EN DVD's French pictures over its English data)
+        if c.ext() == "pff" {
+            c.file = self.pic_file(&c);
         }
         Some(c)
     }

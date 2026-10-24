@@ -48,6 +48,13 @@ distributes nothing of the game.
   (F3 or Settings → Subtitles: on; off by default, as in the game), no Russian options.
   With both an English and a Russian copy, Shiloh can switch the game language and show English subtitles over the
   Russian release.
+- The French edition on the same DVD image (its `Francais` folder): English stays the default; French is the second
+  game language (F4, Settings → Game language, `--game-lang fr`, or `?game-lang=fr` in the browser) with French
+  voices, movies, texts and interface pictures. The folder alone also works (`--data /path/to/Francais`). Its program
+  and database are the English DVD's very files. The game has been played through in French from start to
+  finish (in the browser, the Russian release with this image as `--en-data`). Its movies carry no French subtitles (only a few English sound-effect captions), and two
+  movies of the English folder are missing from the French one (with the image Shiloh plays the English ones there).
+  Given as `--en-data` beside the Russian release, the image offers both its English and its French.
 - Platforms: built and played on macOS (Apple Silicon). The Windows build has been run on a Windows PC (starting it
   by dropping a disc image onto `xf.exe`). Linux is untested. The browser version needs a current browser with WebAssembly; played through in Firefox.
 - Expect bugs. Where the port's behaviour differs from the original game, a report with the place in the game and
@@ -62,7 +69,9 @@ distributes nothing of the game.
 - Subtitles: English subtitles taken from your own English copy (with the English DVD as the game data, straight
   from its movies). Russian subtitles from a translation table you supply (nothing of it ships with Shiloh). F3
   switches captions on and off.
-- Game language switch (F4) between the Russian and the English data, when both are present.
+- Game language switch (F4) through every language of the copies you give: the game data's own plus every language
+  folder of the discs (the Russian release with the English DVD Edition image: Russian, English and French). The
+  settings name each language's edition and source (file or folder name).
 - Saves use the original game's save-file format.
 - The game's QDesign (QDMC) music tracks are converted once with your own `ffmpeg` (`xf-prep`); everything else,
   including all video, is decoded by Shiloh itself.

@@ -132,6 +132,11 @@ pub fn phone_numbers(w: &World) -> Vec<String> {
 /// Text of a text AssetRef (f40 & 7 = 4): blob `[n][n decimal digits = length][text]…`; None for other assets
 /// (the original gives "" for them).
 pub fn asset_text(w: &World, asset: u32) -> Option<String> {
+    asset_text_in(w, asset, w.lang_strings.as_deref())
+}
+
+/// [`asset_text`] with `strings` as the string table laid over the HDB's own (None: the HDB's alone; H2390)
+pub fn asset_text_in(w: &World, asset: u32, strings: Option<&std::collections::HashMap<u32, String>>) -> Option<String> {
     let r = w.h.read(class::ASSET_REF, asset)?;
     if r.u32("f40") & 7 == 0 && w.rules.h260_login_text {
         // H260: Pascal strings (resource type, id); type "6" = RT_STRING of XfilesT.dll
@@ -141,7 +146,7 @@ pub fn asset_text(w: &World, asset: u32) -> Option<String> {
         let n2 = *b.get(1 + n1)? as usize;
         let id: u32 = std::str::from_utf8(b.get(2 + n1..2 + n1 + n2)?).ok()?.parse().ok()?;
         // H1836: the game language's string table first (same ids as the HDB's)
-        let lang = w.lang_strings.as_ref().and_then(|t| t.get(&id));
+        let lang = strings.and_then(|t| t.get(&id));
         return (ty == "6").then(|| lang.or_else(|| w.h.res_strings.get(&id)).cloned()).flatten();
     }
     if r.u32("f40") & 7 != 4 {

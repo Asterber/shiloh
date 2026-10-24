@@ -65,6 +65,21 @@ fn pff_pictures() {
     let c = MediaLib::new(&d).resolve(&h, 0xe4ae).unwrap();
     assert_eq!((c.name.as_str(), c.start, c.end), ("x.pff", 469, 469));
 }
+/// H2400: x.pff pictures whose JPEG bands are each followed by a 1-bit QuickTime logo BitMap (no PixMap record): read
+/// as a PixMap it ran past the entry, so every band after the first logo stayed black. The last row is drawn now.
+#[test]
+fn pff_bands_after_logo_bitmap() {
+    use xf::media::pict::Pff;
+    let Some(d) = data() else { return };
+    let p = Pff::open(&d.join("x.pff")).unwrap();
+    let cut = [283, 284, 287, 290, 296, 297, 303, 305, 306, 312, 332, 369, 380, 381, 455, 478, 480, 495, 498, 499, 504, 505, 508, 670, 682];
+    for i in cut {
+        let a = p.picture(i).unwrap();
+        let last = &a.rgb[(a.height - 1) * a.width * 3..];
+        assert!(last.iter().any(|&c| c > 0), "entry {i}: last row black");
+    }
+}
+
 const PFF2: u64 = 0x9120a1be1882d39d;
 const PFF469: u64 = 0x3677c3a7d2c92bf7;
 

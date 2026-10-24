@@ -74,6 +74,8 @@ pub struct DataSet {
     pub images: Vec<Arc<Image>>,
     /// game roots left out: another language's folder on the same disc (the EN DVD's `Francais/`)
     pub skipped: Vec<String>,
+    /// the sources it was opened from (H2372: the folder left out is opened from them, [`mount_skipped`])
+    pub sources: Vec<PathBuf>,
 }
 
 /// File-name extensions taken as disc images when a source folder is scanned for them.
@@ -139,6 +141,12 @@ impl DataSet {
     /// The sources (folders and image files) merged; Err with a message when a source cannot be read or holds no
     /// game files.
     pub fn open(sources: &[PathBuf]) -> Result<DataSet, String> {
+        DataSet::open_lang(sources, None)
+    }
+
+    /// [`DataSet::open`] taking the language folder `lang` (a [`crate::media::lang::GameLang`] code: `fr` = the
+    /// DVD's `Francais/`) on a disc with several (H2371); None or a language the disc lacks: as [`DataSet::open`].
+    pub fn open_lang(sources: &[PathBuf], lang: Option<&str>) -> Result<DataSet, String> {
         let first = sources.first().ok_or("no data source")?;
         let root = std::path::absolute(first).map_err(|e| format!("{}: {e}", first.display()))?;
         let mut installed: Vec<Layer> = Vec::new();
@@ -157,7 +165,7 @@ impl DataSet {
                 return Ok(());
             }
             let img = Arc::new(Image::open(&canon).map_err(|e| e.to_string())?);
-            let (roots, other) = one_family(iso_roots(&img));
+            let (roots, other) = one_family(iso_roots(&img), lang);
             for f in other {
                 skipped.push(format!("{} [{}]/{f}", img.path.display(), img.label));
             }
@@ -187,7 +195,7 @@ impl DataSet {
             }
             let d = dunce::canonicalize(s).map_err(|e| format!("{}: {e}", s.display()))?;
             let roots = dir_roots(&d);
-            let own = roots.first().is_some_and(|r| r == &d);
+            let own = is_installed(&d, &roots);
             let mut imgs: Vec<PathBuf> = std::fs::read_dir(&d)
                 .map_err(|e| format!("{}: {e}", d.display()))?
                 .flatten()
@@ -226,7 +234,7 @@ impl DataSet {
                 let rels = roots
                     .into_iter()
                     .map(|r| (r.clone(), r.strip_prefix(&d).unwrap_or(&r).to_string_lossy().replace('\\', "/")));
-                let (keep, other) = one_family(rels.collect());
+                let (keep, other) = one_family(rels.collect(), lang);
                 for f in other {
                     skipped.push(format!("{}/{f}", d.display()));
                 }
@@ -254,7 +262,7 @@ impl DataSet {
         if layers.is_empty() {
             return Err(format!("{}: no game files found", root.display()));
         }
-        Ok(DataSet { root, layers, images, skipped })
+        Ok(DataSet { root, layers, images, skipped, sources: sources.to_vec() })
     }
 
     fn hits(&self, rel: &Path) -> Vec<Hit> {
@@ -553,10 +561,26 @@ fn family(rel: &str) -> String {
     }
 }
 
+/// The folder names of a language's family on a multi-language disc (H2371): the EN DVD's `English/` and
+/// `Francais/`.
+fn family_names(lang: &str) -> &'static [&'static str] {
+    match lang.to_ascii_lowercase().as_str() {
+        "fr" | "french" | "francais" => &["francais", "french", "fran\u{e7}ais"],
+        "de" | "german" => &["deutsch", "german"],
+        _ => &["english"],
+    }
+}
+
+/// The language code of a family folder's name (`Francais` → `fr`), None for another name.
+pub fn family_lang(name: &str) -> Option<&'static str> {
+    let last = name.rsplit(['/', '\\']).next().unwrap_or("").to_lowercase();
+    ["en", "fr", "de"].into_iter().find(|l| family_names(l).contains(&last.as_str()))
+}
+
 /// One title per disc: a disc with several families of game roots (the EN DVD's `English/` and `Francais/`, each
-/// with its own MININST / MEDINST) gives the English one, else the disc root's, else the first by name. Returns the
-/// roots kept and the families left out.
-fn one_family<T>(roots: Vec<(T, String)>) -> (Vec<(T, String)>, Vec<String>) {
+/// with its own MININST / MEDINST) gives the one of `lang` (H2371), else the English one, else the disc root's, else
+/// the first by name. Returns the roots kept and the families left out.
+fn one_family<T>(roots: Vec<(T, String)>, lang: Option<&str>) -> (Vec<(T, String)>, Vec<String>) {
     let mut fams: Vec<String> = roots.iter().map(|r| family(&r.1)).collect();
     fams.sort();
     fams.dedup();
@@ -569,11 +593,11 @@ fn one_family<T>(roots: Vec<(T, String)>) -> (Vec<(T, String)>, Vec<String>) {
     if tops.len() <= 1 {
         return (roots, Vec::new());
     }
-    let pick = tops
-        .iter()
-        .find(|f| f.rsplit('/').next().unwrap_or("").eq_ignore_ascii_case("english"))
-        .unwrap_or(&tops[0])
-        .clone();
+    let named = |l: &str| {
+        let names = family_names(l);
+        tops.iter().find(|f| names.contains(&f.rsplit('/').next().unwrap_or("").to_lowercase().as_str())).cloned()
+    };
+    let pick = lang.and_then(named).or_else(|| named("en")).unwrap_or_else(|| tops[0].clone());
     let inside = |f: &str| f == pick || f.starts_with(&format!("{pick}/"));
     let other = tops.iter().filter(|f| **f != pick).cloned().collect();
     (roots.into_iter().filter(|r| inside(&family(&r.1))).collect(), other)
@@ -638,8 +662,9 @@ fn dir_roots(d: &Path) -> Vec<PathBuf> {
             rd.flatten().map(|e| (lower(&e.file_name()), e.path(), e.path().is_dir())).collect();
         if is_root_names(es.iter().map(|(n, _, d)| (n.clone(), *d))) {
             out.push(p.to_path_buf());
-            // an installed folder: not searched further
-            if depth == 3 {
+            // an installed folder: not searched further — unless it is a disc's language folder with its own
+            // install folders (the DVD's `Francais/` copied or mounted alone, H2370)
+            if depth == 3 && !es.iter().any(|(n, _, d)| *d && (n == "mininst" || n == "medinst")) {
                 return;
             }
         }
@@ -654,6 +679,15 @@ fn dir_roots(d: &Path) -> Vec<PathBuf> {
     }
     walk(d, 3, &mut out);
     out
+}
+
+/// Whether the folder `d` (with its game roots `roots`, [`dir_roots`]) is an installed game: its own root, and no
+/// `MININST` / `MEDINST` game root in it (H2370: a disc's language folder holds the HDB only in `MININST`).
+fn is_installed(d: &Path, roots: &[PathBuf]) -> bool {
+    let inst = |r: &PathBuf| {
+        r.parent() == Some(d) && r.file_name().is_some_and(|n| matches!(lower(n).as_str(), "mininst" | "medinst"))
+    };
+    roots.first().is_some_and(|r| r == d) && !roots.iter().any(inst)
 }
 
 /// The mounted data sets.
@@ -756,7 +790,7 @@ pub fn needs_vfs(sources: &[PathBuf]) -> bool {
     match sources {
         [one] if one.is_dir() => {
             let Ok(c) = dunce::canonicalize(one) else { return true };
-            dir_roots(&c).first() != Some(&c)
+            !is_installed(&c, &dir_roots(&c))
         }
         _ => true,
     }
@@ -766,10 +800,15 @@ pub fn needs_vfs(sources: &[PathBuf]) -> bool {
 /// the merged data set, mounted (with [`VfsFs`] installed), its virtual root returned. `log` gets one line per layer
 /// and the warnings; Err = cannot start (no source, unreadable, no HDB / GAM).
 pub fn data_root(sources: &[PathBuf], log: &mut dyn FnMut(String)) -> Result<PathBuf, String> {
+    data_root_lang(sources, None, log)
+}
+
+/// [`data_root`] taking the language folder `lang` on a multi-language disc ([`DataSet::open_lang`], H2371).
+pub fn data_root_lang(sources: &[PathBuf], lang: Option<&str>, log: &mut dyn FnMut(String)) -> Result<PathBuf, String> {
     if !needs_vfs(sources) {
         return Ok(sources[0].clone());
     }
-    let ds = DataSet::open(sources)?;
+    let ds = DataSet::open_lang(sources, lang)?;
     if !install() {
         return Err("disc images: another file backend is installed".into());
     }
@@ -801,6 +840,115 @@ pub fn data_root(sources: &[PathBuf], log: &mut dyn FnMut(String)) -> Result<Pat
         return Err(fatal.join("; "));
     }
     Ok(ds.root.clone())
+}
+
+impl DataSet {
+    /// H2372: the languages of the language folders left out ([`DataSet::skipped`], e.g. `fr` for the EN DVD's
+    /// `Francais/`), in order, once each.
+    pub fn skipped_langs(&self) -> Vec<&'static str> {
+        let mut v: Vec<&'static str> = Vec::new();
+        for l in self.skipped.iter().filter_map(|s| family_lang(s)) {
+            if !v.contains(&l) {
+                v.push(l);
+            }
+        }
+        v
+    }
+}
+
+/// H2372: the language folders left out of the data set mounted at `root` ([`DataSet::skipped_langs`]); empty for a
+/// folder read directly.
+pub fn skipped_langs(root: &Path) -> Vec<&'static str> {
+    find(root).filter(|(_, r)| r.as_os_str().is_empty()).map(|(ds, _)| ds.skipped_langs()).unwrap_or_default()
+}
+
+/// H2372: the language folder `lang` of the same sources as a second data set, mounted below the first one's root
+/// (`<root>/<lang>.lang`, a name no game folder has): the data set laid over the game data by the game-language
+/// switch. Returns its virtual root.
+pub fn mount_lang(sources: &[PathBuf], lang: &str) -> Result<PathBuf, String> {
+    let mut ds = DataSet::open_lang(sources, Some(lang))?;
+    if ds.skipped.is_empty() || ds.skipped_langs().contains(&lang) {
+        return Err(format!("{lang}: not a language folder of these discs"));
+    }
+    ds.root = ds.root.join(format!("{lang}.lang"));
+    if !install() {
+        return Err("disc images: another file backend is installed".into());
+    }
+    Ok(mount(ds).root.clone())
+}
+
+/// H2374: the first language folder left out of the data mounted at `root` (a multi-language disc: the EN DVD's
+/// `Francais/`) mounted as a data set of its own ([`mount_lang`]) — the one the game-language switch lays over the
+/// game data. None when nothing was left out (a failure is logged).
+pub fn mount_skipped(root: &Path, log: &mut dyn FnMut(String)) -> Option<PathBuf> {
+    let (ds, _) = find(root).filter(|(_, r)| r.as_os_str().is_empty())?;
+    let lang = *ds.skipped_langs().first()?;
+    match mount_lang(&ds.sources, lang) {
+        Ok(d) => Some(d),
+        Err(e) => {
+            log(format!("the disc's {lang} folder: {e}"));
+            None
+        }
+    }
+}
+
+/// H2380: every language folder left out of the data mounted at `root`, each mounted as a data set of its own
+/// ([`mount_lang`]): (language code, the folder's name as on the disc — `Francais` —, its virtual root). Empty when
+/// nothing was left out (a failure is logged and skipped).
+pub fn mount_skipped_all(root: &Path, log: &mut dyn FnMut(String)) -> Vec<(&'static str, String, PathBuf)> {
+    let Some((ds, _)) = find(root).filter(|(_, r)| r.as_os_str().is_empty()) else { return Vec::new() };
+    let mut out = Vec::new();
+    for lang in ds.skipped_langs() {
+        let folder = ds
+            .skipped
+            .iter()
+            .filter(|s| family_lang(s) == Some(lang))
+            .map(|s| s.rsplit(['/', '\\']).next().unwrap_or("").to_string())
+            .next()
+            .unwrap_or_default();
+        match mount_lang(&ds.sources, lang) {
+            Ok(d) => out.push((lang, folder, d)),
+            Err(e) => log(format!("the disc's {lang} folder: {e}")),
+        }
+    }
+    out
+}
+
+/// H2380: every language data set of the discs given, for the game-language switch: the `--en-data` game folder
+/// `en` (its default language folder, English) and the language folders left out of it, then those left out of the
+/// game data `data` (the EN DVD's `Francais/`) — each once, with its source by names
+/// ([`crate::media::lang::source_name`]: `XFILES1.mdf, Francais`). The data sets of the game data's own language are
+/// dropped later (`Session::add_lang_data`).
+pub fn lang_sets(data: &Path, en: Option<&Path>, log: &mut dyn FnMut(String)) -> Vec<(PathBuf, String)> {
+    use crate::media::lang::source_name;
+    let mut out: Vec<(PathBuf, String)> = Vec::new();
+    if let Some(en) = en {
+        out.push((en.to_path_buf(), source_name(&sources_of(en), None)));
+        for (_, folder, d) in mount_skipped_all(en, log) {
+            out.push((d, source_name(&sources_of(en), Some(&folder))));
+        }
+    }
+    for (_, folder, d) in mount_skipped_all(data, log) {
+        if !out.iter().any(|o| o.0 == d) {
+            out.push((d, source_name(&sources_of(data), Some(&folder))));
+        }
+    }
+    out
+}
+
+/// H2380: a recycle bin folder left on a disc's master (`Francais/RECYCLED/`: old install files under other names,
+/// H2370) — never indexed, served or read as game files.
+pub fn is_junk_dir(name: &str) -> bool {
+    matches!(name.to_ascii_lowercase().as_str(), "recycled" | "recycler" | "$recycle.bin")
+}
+
+/// H2380: the sources the game folder `root` was made of (the data set mounted there: the images / folders given),
+/// else `root` itself (a folder read directly) — for the settings' labels ([`crate::media::lang::source_name`]).
+pub fn sources_of(root: &Path) -> Vec<PathBuf> {
+    match find(root).filter(|(_, r)| r.as_os_str().is_empty()) {
+        Some((ds, _)) => ds.sources.clone(),
+        None => vec![root.to_path_buf()],
+    }
 }
 
 /// The data sources of an environment variable (`XF_DATA`, `XF_EN_DATA`): one path, or several separated as in

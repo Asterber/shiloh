@@ -165,10 +165,11 @@ pub fn face(lib: &MediaLib, font: DocFont, size: u32) -> Option<&'static DocFace
 }
 
 /// [`face`] in the session's game language: H1835 — the EN .ttr fonts are other files than the RU ones (other upem /
-/// metrics, no Cyrillic), so English texts use the English data set's font.
+/// metrics, no Cyrillic), so English texts use the English data set's font (any data set laid over: its language's,
+/// H2374).
 pub fn face_lang(s: &super::Session, font: DocFont, size: u32) -> Option<&'static DocFace> {
-    let alt = match (s.game_lang, &s.en_data, game_font_file(font)) {
-        (crate::media::lang::GameLang::En, Some(en), Some(n)) => en.index.find(n).cloned(),
+    let alt = match (s.overlay(s.game_lang), game_font_file(font)) {
+        (Some(en), Some(n)) => en.index.find(n).cloned(),
         _ => None,
     };
     face_from(&s.lib, font, size, alt)
@@ -225,7 +226,9 @@ pub fn decode_cp1252(b: &[u8]) -> String {
 pub fn decode_text(b: &[u8], lang: crate::media::lang::GameLang) -> String {
     match lang {
         crate::media::lang::GameLang::Ru => decode_cp1251(b),
-        crate::media::lang::GameLang::En | crate::media::lang::GameLang::De => decode_cp1252(b),
+        crate::media::lang::GameLang::En | crate::media::lang::GameLang::De | crate::media::lang::GameLang::Fr => {
+            decode_cp1252(b)
+        }
     }
 }
 

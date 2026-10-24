@@ -15,6 +15,7 @@ pub mod devices;
 mod h76;
 mod h89;
 pub mod icons;
+pub mod langlayout;
 pub mod moviehot;
 pub mod procs;
 pub mod run;
@@ -1275,6 +1276,12 @@ pub struct Rules {
     /// held (inventory value 0x17); else, with the gun held (9), the gunsight; else the cursor is left as it was. Off: a
     /// target shows the crosshair (the gunsight with the gun, C301)
     pub h2350_movie_hot_cursor: bool,
+    /// C312 (`traces/fo-268.jsonl` .. `traces/fo-271.jsonl`, H2390; display only): with no item selected, a CharView's
+    /// cursor is the null cursor (crosshair) while its own dialogue box exists; else the region cursor (the lips) of the
+    /// CharView its Mouse Click's CharTeleport leads to, when that one has something to talk about; else its own region
+    /// cursor when it has an enabled Conversation / IdeaIcon (H155's DisplayDBox test); else no cursor is set — the
+    /// cursor stays as it was (the crosshair, or the hand of the hotspot left). Off: the region cursor always
+    pub c312_char_view_cursor: bool,
     /// C306 (`traces/fo-259.jsonl` / fo-260 / fo-261, H2251): the held camera's shot (H2170) is a photo of the video
     /// under the viewfinder — the playing video, else the View's looping background — at its current time (f68, 1/600 s),
     /// cropped to (x0, 0, x0 + 320, 240) with x0 = pointer x − 160 clamped to 0..280; stored in the camera like TakePhoto's
@@ -1484,6 +1491,7 @@ impl Rules {
             c301_gunsight_cursor: true,
             c302_item_cursor_reaction: true,
             h2350_movie_hot_cursor: true,
+            c312_char_view_cursor: true,
             c306_shot_photo: true,
             h2280_save_slot_bar: true,
             h1220_bg_none_deact: true,
@@ -1697,6 +1705,15 @@ pub struct World<'a> {
     /// H1836 (port feature, the game language): the string table that replaces the HDB's own `XfilesT.dll` strings
     /// (`Hdb::res_strings`) — the English data set's, same ids; None = the HDB's (RU). Set by `Session::set_game_lang`.
     pub lang_strings: Option<std::sync::Arc<std::collections::HashMap<u32, String>>>,
+    /// H2390 (port feature): the string table SetLanguage reads its text from — that of the language whose interface
+    /// pictures are drawn (`Session::pic_lang`), so the buttons the HDB places by scGameLanguage (H650's RelocateIFace)
+    /// fit the pictures shown; None = the HDB's own. Set by `Session::set_game_lang`.
+    pub layout_strings: Option<std::sync::Arc<std::collections::HashMap<u32, String>>>,
+    /// H2390: the last SetLanguage's (text AssetRef, string variable), written again at a game-language switch
+    pub set_language: Option<(u32, u32)>,
+    /// H2401 (port feature): the 2.05 HDB's button moves an item's Activation also runs (French pictures over RU data);
+    /// None = none. Set by `Session::set_game_lang`.
+    pub lang_relocs: Option<std::sync::Arc<langlayout::LangRelocs>>,
     /// H1320 (e2e input, like H1120's latency): without the live generator, the Views DoSmolShootout picked on the
     /// original (the next transition after each of its executions, [`shootout::picks_from_trace`]), in order
     pub smol_trace_picks: std::collections::VecDeque<u32>,
@@ -1951,6 +1968,9 @@ impl<'a> World<'a> {
             clock: 0,
             live_rand: None,
             lang_strings: None,
+            layout_strings: None,
+            lang_relocs: None,
+            set_language: None,
             smol_trace_picks: Default::default(),
             smol_trace_will: Default::default(),
             dbox_seq: None,
@@ -2302,6 +2322,10 @@ impl<'a> World<'a> {
                     }
                 }
             }
+        }
+        // H2401: the 2.05 HDB's moves of an activated item (French pictures over RU data), after its own triggers' posts
+        if ev == event::ACTIVATION && !self.restoring && self.rules.h179_relocate_iface {
+            self.lang_relocate(owner);
         }
         // HYPOTHESIS H68 (fo-017 155.83–156.27: a state-0 command for each of the three icons, right after the clicked
         // icon's 8 action posts; dispatched 185.60.. after the last of them, each followed by its Deactivation)
@@ -4035,13 +4059,14 @@ impl<'a> World<'a> {
             }
             // H650: SetLanguage(asset, var) (FUN_0048b680): var set to the AssetRef's text, written only when it differs;
             // 0x10dec = SetLanguage(0x10dea = XfilesT.dll 1091 'english', 0xf9d)
+            // H2390: the text from the string table of the language whose interface pictures are drawn
             ("SetLanguage", &[asset, var, ..]) if self.rules.h650_string_compare => {
-                match procs::computer::asset_string(self, asset) {
-                    Some(t) if self.vars.set_text(var, &procs::computer::to_cp1251(&t)) => {}
-                    _ => self.out.push(Out::Unimplemented {
+                self.set_language = Some((asset, var));
+                if !self.set_language_text(asset, var) {
+                    self.out.push(Out::Unimplemented {
                         action: a.id,
                         what: format!("H650: SetLanguage text of {asset:#x} / variable {var:#x} unknown"),
-                    }),
+                    });
                 }
             }
             ("SetLanguage" | "SendEmail" | "EmailFlushMess" | "StartVideoText" | "RollHdCredits", _)

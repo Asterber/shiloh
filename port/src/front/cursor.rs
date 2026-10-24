@@ -24,6 +24,12 @@
 //! movie-hotspot target's set the gunsight flag, so over the View band (the held gun hit, H450),
 //! a goon's target, a playing video there and a reacting Explorable / CharView the null cursor is resource 0x84.
 //!
+//! C312 (`traces/fo-268.jsonl` .. `traces/fo-271.jsonl`, the pick decoded in H2393) — **a CharView's cursor, nothing
+//! selected**: the crosshair while that CharView's dialogue box exists; the lips (the region cursor) of the CharView its
+//! Mouse Click's CharTeleport leads to when that one has an enabled Conversation / IdeaIcon; else its own lips when it
+//! has one itself; else the pick sets no cursor and the one shown stays (the crosshair, or the hand of a hotspot just
+//! left) — no lips over a character a click would not talk to.
+//!
 //! HYPOTHESIS H2350 (static decode of the target's cursor pick; fo-264 / fo-265 / fo-220 hold) — **a movie-hotspot target picks the
 //! cursor by its hotspot id**: the fist 0x4454 over 441 / 451 / 463 (the 'trap Mulder' red button is 451), with the
 //! stiletto held 0x7cbb over 433 / 461 / 470 and the animated stiletto 0xe2ef over 462 (Cook at the blast door); else
@@ -68,7 +74,7 @@ pub struct Frame {
 pub struct CursorState {
     /// the shape shown and since when (`Session::now`): an activation restarts the animation (H330)
     pub current: Option<(Shape, u64)>,
-    frames: HashMap<u32, Vec<Frame>>,
+    pub(crate) frames: HashMap<u32, Vec<Frame>>,
     win: HashMap<u32, Option<WinCursor>>,
 }
 
@@ -113,6 +119,23 @@ pub fn shape(s: &Session) -> Option<Shape> {
                 return Some(Shape::Game(cur));
             }
         }
+    }
+    // C312: a CharView's own pick — the crosshair while its box exists; the lips only where a click would talk (here
+    // or at its CharTeleport's target); else nothing is set and the cursor shown stays
+    if let Some(c) = hit.filter(|c| rules.c312_char_view_cursor && c.cls == class::CHAR_VIEW) {
+        let w = &s.r.w;
+        if w.dbox_char_view() == Some(c.owner) {
+            return Some(Shape::Win(WIN_CROSSHAIR));
+        }
+        let talker = w.char_teleport_talker(c.owner).or_else(|| w.char_view_talks(c.owner).then_some(c.owner));
+        let kind = talker.and_then(|t| match h.read(class::CHAR_VIEW, t)?.field("f2c") {
+            Some(crate::hdb::Value::Region { kind, .. }) => Some(*kind),
+            _ => None,
+        });
+        return Some(match kind {
+            Some(k) if h.has(class::CURSOR, k) => Shape::Game(k),
+            _ => s.cursor.current.map_or(Shape::Win(WIN_CROSSHAIR), |(sh, _)| sh),
+        });
     }
     match hit {
         Some(c) if h.has(class::CURSOR, c.kind) => Some(Shape::Game(c.kind)),

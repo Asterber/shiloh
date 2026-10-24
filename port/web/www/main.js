@@ -116,6 +116,14 @@ function engineState(text, crop) {
     for (const o of el.options) o.hidden = o.disabled = !ok.includes(o.value);
     el.closest('tr').hidden = ok.length < 2;
   }
+  // H2380: the values' labels the data gives (`label.game_lang.fr = French — EN DVD Edition 2.05 (XFILES1.mdf, Francais)`)
+  for (const [key, text] of Object.entries(v)) {
+    if (!key.startsWith('label.')) continue;
+    const [, k, val] = key.split('.');
+    const el = field(k);
+    const o = el && [...el.options].find((x) => x.value === val);
+    if (o) o.textContent = text;
+  }
   for (const k of ['overlay', 'captions', 'subs', 'long_timers', 'game_lang']) if (v[k] !== undefined) field(k).value = v[k];
   if (v.overlay !== undefined) keep('overlay', v.overlay);
   // H2100: the host's Preferences (the original's registry) the engine wrote after a Save
@@ -261,7 +269,7 @@ async function start() {
   // the start (H1660 / H1661): the intro movies then the main menu; `?start=menu` = the menu at once, `?start=new` = New
   // Game at once (the test mode always starts with New Game, as `xf --frames N --dump DIR`)
   if (q.has('start')) msg.start = q.get('start');
-  // H1836: the game language (voice-over + the game's texts) when the server has the English data (xf-serve --en-data)
+  // H1836 / H2380: the game language (voice-over + the game's texts): the data's own or one of xf-serve's /langs
   if (q.has('game-lang')) msg.gameLang = q.get('game-lang');
   const transfer = audio ? [audio.port] : [];
   if (canvas.transferControlToOffscreen) {

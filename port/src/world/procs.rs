@@ -360,6 +360,20 @@ impl<'a> World<'a> {
         }
     }
 
+    /// H2392 (port feature, the game language): a RelocateIFace right edge not right of its left edge would leave the
+    /// item unclickable (the hit test is l <= x < r). The RU HDB holds one (the e-mail search screen's Search button;
+    /// the EN HDB's is wider), reached only when scGameLanguage is not the RU data's own (a French game language over
+    /// RU data, H2390). Then the item's own region gives the right edge (its right, or its width from `l`).
+    pub(super) fn relocated_right(&self, item: u32, l: i32, r: i32) -> i32 {
+        if r > l {
+            return r;
+        }
+        match self.h.read(class::INTERFACE_ITEM, item).and_then(|x| x.field("region").cloned()) {
+            Some(crate::hdb::Value::Region { rect, .. }) => (rect[2] as i32).max(l + (rect[2] - rect[0]) as i32),
+            _ => r,
+        }
+    }
+
     /// The registered owner whose TriggerList holds `trigger`.
     fn owner_of_trigger(&self, trigger: u32) -> Option<u32> {
         let mut owners: Vec<u32> = self
@@ -438,6 +452,7 @@ impl<'a> World<'a> {
                 // the item = event-context key 1 of the item's own Activation (HYPOTHESIS: the activated item)
                 match self.owner_of_trigger(trigger).filter(|&o| self.h.has(class::INTERFACE_ITEM, o)) {
                     Some(item) => {
+                        let rr = self.relocated_right(item, l as i16 as i32, rr as i16 as i32);
                         self.px.item_rects.insert(item, [l as i16, t as i16, rr as i16, b as i16]);
                     }
                     None => self.ab_unimpl(action, "H179: RelocateIFace item (event-context key 1) unknown".into()),

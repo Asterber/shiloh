@@ -161,12 +161,8 @@ pub const NOTE_TEXT: [u8; 3] = [0, 0, 0];
 /// cp1251).
 pub fn note_text(s: &mut Session, a: u32) -> Option<String> {
     if let Some(t) = s.r.w.line_text(a) {
-        // kind-4 blobs come as cp1251 bytes read as chars; string resources are already Unicode
-        return Some(
-            t.into_iter()
-                .map(|c| if (c as u32) < 0x100 { super::doc::decode_cp1251(&[c as u32 as u8]).chars().next().unwrap_or(c) } else { c })
-                .collect(),
-        );
+        // kind-4 blobs come decoded (cp1251), string resources are Unicode (H2376)
+        return Some(t.into_iter().collect());
     }
     super::doc::xtx_text_lang(s, a)
 }

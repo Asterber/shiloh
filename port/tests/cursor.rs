@@ -189,3 +189,64 @@ fn c302_no_item_cursor_without_a_reaction() {
     let off = xf::world::Rules { c302_item_cursor_reaction: false, ..front::rules_hyp() };
     assert_eq!(shape_after(off, item), Some(Game(0x7c8c)));
 }
+
+/// Load `save`, settle, then for every step of `steps`: apply it, run 1 s (a click: settle) and render (the cursor
+/// shown becomes the current one, as in a window); the shape at the end.
+fn shape_seq(save: &str, rules: xf::world::Rules, steps: &str) -> Option<cursor::Shape> {
+    let d = root().join("data/InstalledGame");
+    let save = root().join("data/bot").join(save);
+    if !d.join("XFiles.hdb").exists() || !save.exists() {
+        return None;
+    }
+    let h = Box::leak(Box::new(Hdb::open(d.join("XFiles.hdb")).unwrap()));
+    let g = Box::leak(Box::new(Hdb::open(&save).unwrap()));
+    let mut s = Session::with_rules(h, g, &d, rules);
+    s.r.load_game();
+    front::settle_timers(&mut s, 100, 900_000);
+    s.game_cursor = true;
+    for i in script::parse(steps).unwrap() {
+        script::apply(&mut s, &i);
+        for _ in 0..20 {
+            s.tick(50);
+        }
+        if matches!(i, script::Input::Click(..)) {
+            front::settle_timers(&mut s, 100, 900_000);
+        }
+        let _ = s.render();
+    }
+    cursor::shape(&s)
+}
+
+/// C312 (`traces/fo-268.jsonl`): the NSA men on the porch (View 0x2012, CharViews 0x16b70 / 0x16b71) have nothing to
+/// talk about — their cursor pick sets nothing: the crosshair stays when coming from nothing, the left hand 0x11c when
+/// coming from the nav-hotspot. Ablation: C312 off → the lips 0x122.
+#[test]
+fn c312_no_lips_without_talk() {
+    use cursor::Shape::{Game, Win};
+    let r = front::rules_hyp;
+    let Some(sh) = shape_seq("fo-209-end.x", r(), "m:190,150;m:121,240") else { return };
+    assert_eq!(sh, Win(cursor::WIN_CROSSHAIR));
+    assert_eq!(shape_seq("fo-209-end.x", r(), "m:190,150;m:163,234"), Some(Win(cursor::WIN_CROSSHAIR)));
+    assert_eq!(shape_seq("fo-209-end.x", r(), "m:60,150;m:121,240"), Some(Game(0x11c)));
+    let off = xf::world::Rules { c312_char_view_cursor: false, ..r() };
+    assert_eq!(shape_seq("fo-209-end.x", off, "m:190,150;m:121,240"), Some(Game(0x122)));
+    // fo-270: 0xaf8c's only Conversation used up — the forward hand kept, the crosshair from nothing
+    assert_eq!(shape_seq("fo-133-end.x", r(), "m:320,140;m:278,232"), Some(Game(0x11e)));
+    assert_eq!(shape_seq("fo-133-end.x", r(), "m:230,140;m:278,232"), Some(Win(cursor::WIN_CROSSHAIR)));
+}
+
+/// C312 (`traces/fo-269.jsonl`, `traces/fo-271.jsonl`): the lips over a CharView that talks (0x667b at View 0x11d0) and
+/// over one whose CharTeleport leads to a CharView that talks (0x131e0 at View 0x2b4 → Skinner 0x98ce at 0x4bf); the
+/// crosshair over the CharView whose box is open (0x5d7b). Ablation: C312 off → the lips over 0x5d7b.
+#[test]
+fn c312_lips_where_a_click_talks() {
+    use cursor::Shape::{Game, Win};
+    let r = front::rules_hyp;
+    let Some(sh) = shape_seq("fo-135-end.x", r(), "m:300,120;m:140,190") else { return };
+    assert_eq!(sh, Game(0x122));
+    assert_eq!(shape_seq("fo-135-end.x", r(), "m:300,120;m:528,250"), Some(Win(cursor::WIN_CROSSHAIR)));
+    let off = xf::world::Rules { c312_char_view_cursor: false, ..r() };
+    assert_eq!(shape_seq("fo-135-end.x", off, "m:300,120;m:528,250"), Some(Game(0x122)));
+    let teleport = "m:20,440;p:21,440;p:239,322;p:326,234;p:570,210;m:155,120;m:181,240";
+    assert_eq!(shape_seq("fo-127-end.x", r(), teleport), Some(Game(0x122)));
+}

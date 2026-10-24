@@ -24,6 +24,8 @@ pub enum GameLang {
     En,
     /// the German retail CD set as the game data (H2323; never a data set laid over another)
     De,
+    /// the EN DVD Edition's `Francais/` (H2373): the game data, or laid over the disc's English data (H2374)
+    Fr,
 }
 
 impl GameLang {
@@ -32,6 +34,7 @@ impl GameLang {
             "ru" | "rus" | "russian" => Some(GameLang::Ru),
             "en" | "eng" | "english" => Some(GameLang::En),
             "de" | "deu" | "ger" | "german" | "deutsch" => Some(GameLang::De),
+            "fr" | "fra" | "fre" | "french" | "francais" | "fran\u{e7}ais" => Some(GameLang::Fr),
             _ => None,
         }
     }
@@ -40,8 +43,67 @@ impl GameLang {
             GameLang::Ru => "ru",
             GameLang::En => "en",
             GameLang::De => "de",
+            GameLang::Fr => "fr",
         }
     }
+
+    /// The language's name in English (the settings' labels, H2380)
+    pub fn name(self) -> &'static str {
+        match self {
+            GameLang::Ru => "Russian",
+            GameLang::En => "English",
+            GameLang::De => "German",
+            GameLang::Fr => "French",
+        }
+    }
+}
+
+/// H2380: the edition a data set of `lang` comes from, by the build of its exe ([`crate::exetables::identify_head`];
+/// None: no known exe): the RU 1.00 build, the EN DVD Edition's 2.05 (its English and French folders, H2373), the
+/// German CDs' 1.00.19; the English CDs carry the RU 1.00 exe (H2329).
+pub fn edition(lang: GameLang, build: Option<crate::exetables::Build>) -> String {
+    use crate::exetables::Build;
+    match (lang, build) {
+        (GameLang::Ru, _) => "RU 1.00".into(),
+        (_, Some(Build::EnDvd)) => "EN DVD Edition 2.05".into(),
+        (GameLang::En, Some(Build::Ru100)) => "EN CD 1.00".into(),
+        (_, Some(Build::De10019)) | (GameLang::De, None) => "DE CD 1.00.19".into(),
+        (l, _) => l.code().to_ascii_uppercase(),
+    }
+}
+
+/// H2380: a game language's label in the settings: language — edition (source), e.g. "French — EN DVD Edition 2.05
+/// (XFILES1.mdf, Francais)"; the source only by file / folder names ([`source_name`]), never a full path.
+pub fn label(lang: GameLang, build: Option<crate::exetables::Build>, source: &str) -> String {
+    let e = edition(lang, build);
+    if source.is_empty() {
+        format!("{} \u{2014} {e}", lang.name())
+    } else {
+        format!("{} \u{2014} {e} ({source})", lang.name())
+    }
+}
+
+/// H2380: the source of a data set as the user gave it, by names only: the image file's or the folder's name (the
+/// first of several and how many more), plus the language folder taken from it when not the disc's default (`folder`,
+/// e.g. `Francais`).
+pub fn source_name(sources: &[PathBuf], folder: Option<&str>) -> String {
+    let name = |p: &PathBuf| {
+        p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| {
+            std::path::absolute(p).ok().and_then(|a| a.file_name().map(|n| n.to_string_lossy().into_owned())).unwrap_or_default()
+        })
+    };
+    let mut s = match sources {
+        [] => String::new(),
+        [one] => name(one),
+        [first, rest @ ..] => format!("{} +{}", name(first), rest.len()),
+    };
+    if let Some(f) = folder.filter(|f| !f.is_empty()) {
+        if !s.is_empty() {
+            s += ", ";
+        }
+        s += f;
+    }
+    s
 }
 
 /// Whether the file key `rel` (`xv/19812.xmv`, as written in an AssetRef blob, any case) is a language resource taken
@@ -55,6 +117,20 @@ pub fn is_lang_key(rel: &str) -> bool {
         "xt" => ext == "xtx",
         _ => false,
     }
+}
+
+/// H2374: whether the file key `rel` is one of the picture containers (`x.pff`, `X7.PFF`, `XG/*.pff`): swapped with
+/// the language between the EN DVD's English and French data (the same HDB, H2373) — the French ones hold the French
+/// interface pictures; never between RU and English data (the RU `x.pff` fits the RU HDB, H1834).
+pub fn is_pic_key(rel: &str) -> bool {
+    let k = rel.to_ascii_lowercase().replace('\\', "/");
+    k == "x.pff" || k == "x7.pff" || (k.starts_with("xg/") && k.ends_with(".pff"))
+}
+
+/// H2374: whether the picture containers swap between data of `a` and a data set of `b` laid over it: only between
+/// English and French (one HDB); RU and German keep their own (other HDBs, H1834 / H2325).
+pub fn swaps_pictures(a: GameLang, b: GameLang) -> bool {
+    matches!((a, b), (GameLang::En, GameLang::Fr) | (GameLang::Fr, GameLang::En))
 }
 
 /// The layers of an English data set, first wins: an installed English game dir is a single layer (like the RU
@@ -119,6 +195,16 @@ impl EnIndex {
         }
     }
 
+    /// H2374: this data set's picture file for the key `rel` when it is a picture container ([`is_pic_key`]) and
+    /// present.
+    pub fn pic_path(&self, rel: &str) -> Option<&PathBuf> {
+        if is_pic_key(rel) {
+            self.find(rel)
+        } else {
+            None
+        }
+    }
+
     /// The `XfilesT.dll` string table of the English data set (empty if none).
     pub fn strings(&self) -> HashMap<u32, String> {
         match self.find("xfilest.dll") {
@@ -129,7 +215,8 @@ impl EnIndex {
 }
 
 /// H2305 / H2329 (port): the language of the game data the session runs on (`--data`), by its `XfilesT.dll` string
-/// table: Cyrillic strings → Russian; else string 1091 (scGameLanguage) "german" → German; else English. The exe is not
+/// table: Cyrillic strings → Russian; else string 1091 (scGameLanguage) "german" → German, "french" → French (H2373); else
+/// English. The exe is not
 /// the sign: the English retail CDs carry the very exe (and HDB) of RU 1.00 (H2329), and the RU DLL keeps
 /// scGameLanguage "english". Without a string table: by the exe (EN DVD → English, German 1.00.19 → German, else
 /// Russian, the port's default). Cached per folder (read once).
@@ -157,6 +244,8 @@ pub fn dll_lang(t: &HashMap<u32, String>) -> Option<GameLang> {
         Some(GameLang::Ru)
     } else if t.get(&1091).is_some_and(|s| s.trim().eq_ignore_ascii_case("german")) {
         Some(GameLang::De)
+    } else if t.get(&1091).is_some_and(|s| s.trim().eq_ignore_ascii_case("french")) {
+        Some(GameLang::Fr)
     } else {
         Some(GameLang::En)
     }
@@ -174,17 +263,30 @@ pub fn hdb_lang(h: &crate::hdb::Hdb) -> GameLang {
 
 impl GameLang {
     /// H2306 / H2323: the code page of this language's text files (`XT/*.xtx`, the computer's files): cp1251 for
-    /// Russian, cp1252 for English and German
+    /// Russian, cp1252 for English, German and French (H2373)
     pub fn cp1252(self) -> bool {
         self != GameLang::Ru
     }
 }
 
-/// The English data set as the session uses it: the file index + its string table.
-#[derive(Clone, Debug, Default)]
+/// The data set laid over the game data as the session uses it (H1836: English over RU data; H2374: the EN DVD's
+/// French folder over its English one): the file index + its string table + its language.
+#[derive(Clone, Debug)]
 pub struct EnData {
     pub index: EnIndex,
     pub strings: std::sync::Arc<HashMap<u32, String>>,
+    /// the data set's language, by its string table ([`dll_lang`]; English without one)
+    pub lang: GameLang,
+    /// H2380: the build of its exe by the PE header ([`crate::exetables::identify_head`]; None: none / unknown)
+    pub build: Option<crate::exetables::Build>,
+    /// H2380: where it comes from, by names ([`source_name`]: `XFILES1.mdf, Francais`); set by the front
+    pub source: String,
+}
+
+impl Default for EnData {
+    fn default() -> EnData {
+        EnData { index: EnIndex::default(), strings: Default::default(), lang: GameLang::En, build: None, source: String::new() }
+    }
 }
 
 impl EnData {
@@ -195,7 +297,22 @@ impl EnData {
         if strings.is_empty() || !index.index.keys().any(|k| k.starts_with("xv/")) {
             return Err(format!("{}: no English game data (XfilesT.dll + XV/ movies; the DVD's English/ or an installed English game)", dir.display()));
         }
-        Ok(EnData { index, strings: std::sync::Arc::new(strings) })
+        let lang = dll_lang(&strings).unwrap_or(GameLang::En);
+        let build = index
+            .find("xfiles.exe")
+            .and_then(|p| crate::io::read_range(p, 0, 4096).ok())
+            .and_then(|h| crate::exetables::identify_head(&h));
+        Ok(EnData { index, strings: std::sync::Arc::new(strings), lang, build, source: String::new() })
+    }
+
+    /// [`EnData::open`] with its [`EnData::source`]
+    pub fn open_from(dir: &Path, source: String) -> Result<EnData, String> {
+        EnData::open(dir).map(|e| EnData { source, ..e })
+    }
+
+    /// H2380: its label in the settings ([`label`])
+    pub fn label(&self) -> String {
+        label(self.lang, self.build, &self.source)
     }
 }
 
@@ -217,7 +334,13 @@ mod tests {
         assert!(!is_lang_key("Dlg.ttr"));
         assert_eq!(GameLang::parse("EN"), Some(GameLang::En));
         assert_eq!(GameLang::parse("ru"), Some(GameLang::Ru));
-        assert_eq!(GameLang::parse("fr"), None);
+        assert_eq!(GameLang::parse("fr"), Some(GameLang::Fr));
+        assert_eq!(GameLang::parse("it"), None);
+        assert_eq!(GameLang::Fr.code(), "fr");
+        assert!(GameLang::Fr.cp1252());
+        assert!(is_pic_key("X.PFF") && is_pic_key("x7.pff") && is_pic_key("XG/52648.pff") && !is_pic_key("XV/1.xmv"));
+        assert!(swaps_pictures(GameLang::En, GameLang::Fr) && swaps_pictures(GameLang::Fr, GameLang::En));
+        assert!(!swaps_pictures(GameLang::Ru, GameLang::En) && !swaps_pictures(GameLang::De, GameLang::En));
         assert_eq!(GameLang::parse("German"), Some(GameLang::De));
         assert_eq!(GameLang::De.code(), "de");
         assert!(GameLang::De.cp1252() && GameLang::En.cp1252() && !GameLang::Ru.cp1252());
@@ -227,6 +350,23 @@ mod tests {
         assert_eq!(dll_lang(&t(&[(1091, "english"), (5, "\u{416}")])), Some(GameLang::Ru));
         assert_eq!(dll_lang(&t(&[(1091, "german")])), Some(GameLang::De));
         assert_eq!(dll_lang(&t(&[(1091, "english")])), Some(GameLang::En));
+        assert_eq!(dll_lang(&t(&[(1091, "french")])), Some(GameLang::Fr));
+    }
+
+    /// H2380: the settings' labels — language, edition, source by names only.
+    #[test]
+    fn h2380_labels() {
+        use crate::exetables::Build;
+        let p = |s: &str| PathBuf::from(s);
+        assert_eq!(source_name(&[p("dvd/XFILES1.mdf")], None), "XFILES1.mdf");
+        assert_eq!(source_name(&[p("dvd/XFILES1.mdf")], Some("Francais")), "XFILES1.mdf, Francais");
+        assert_eq!(source_name(&[p("a/disk1.iso"), p("b/disk2.iso"), p("c/disk3.iso")], None), "disk1.iso +2");
+        assert_eq!(source_name(&[p("x/InstalledGame/")], None), "InstalledGame");
+        assert_eq!(label(GameLang::Ru, Some(Build::Ru100), "InstalledGame"), "Russian \u{2014} RU 1.00 (InstalledGame)");
+        assert_eq!(label(GameLang::Fr, Some(Build::EnDvd), ""), "French \u{2014} EN DVD Edition 2.05");
+        assert_eq!(edition(GameLang::En, Some(Build::Ru100)), "EN CD 1.00");
+        assert_eq!(edition(GameLang::De, None), "DE CD 1.00.19");
+        assert_eq!(edition(GameLang::En, None), "EN");
     }
 
     /// The DVD layout: MININST first, then MEDINST, then the disc root.

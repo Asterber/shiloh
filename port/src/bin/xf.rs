@@ -29,13 +29,19 @@
 //! and switch captions on (unless `--subtitles` says otherwise; error if the pack is missing), `auto` (default) = use
 //! `ru` when present, else `en`, else none; captions stay as the game has them (F3 / the game's preference), `off` = never.
 //!
-//! Game language (H1836, port feature): `--game-lang ru|en|de` (or `XF_GAME_LANG`; default: the game data's own, H2305) —
+//! Game language (H1836, port feature): `--game-lang ru|en|de|fr` (or `XF_GAME_LANG`; default: the game data's own, H2305) —
 //! the voice-over, the movies and the game's own texts (dialogue lines, notes, documents, names) of the installed RU data
 //! or of an English data set laid over it, `--en-data DIR` (or `XF_EN_DATA`): the EN DVD Edition's disc root /
 //! `English/` dir, or an installed English game. The game logic stays the `--data` set's (saves, routes and the e2e are
 //! unchanged). F4 in the window switches the language live (from the next movie / line). With the EN DVD Edition as
 //! the game data itself (`--data`), English is the only language: no Russian is offered, `--en-data` is not needed and
 //! the subtitles are the movies' own English captions (no pack; F3 / `--subtitles on` shows them, H2305 / H2310).
+//! The EN DVD Edition image also holds the French edition (`Francais/`, H2370–H2375): English stays the game data,
+//! French is the other game language (F4 / the settings / `--game-lang fr`: French voices, movies, texts and interface
+//! pictures). `--data …/Francais` (the folder alone) or a French-only disc runs on French data.
+//! H2380: every language of every disc given is offered — the game data's own, `--en-data`'s English and every other
+//! language folder of the `--en-data` and `--data` discs (RU data with `--en-data XFILES1.mdf`: Russian, English,
+//! French); F4 cycles through them, the settings label each with its edition and source (file / folder names).
 //!
 //! Long timers (C191 / H1203): `--long-timers wine|nt` — `wine` (default) = as the original under the Wine / CrossOver
 //! bottle (and probably Windows 9x): a timer armed with a delay above 65535 ms never fires, so the Gordon's Hauling bomb
@@ -137,7 +143,7 @@ struct Args {
     /// H1660 / H1661: how the program starts without `--load` — `--intro` (the window's default: the intro movies, then
     /// the main menu), `--skip-intro` (the main menu at once), `--new-game` (headless default: New Game at once)
     start: Option<xf::front::intro::Start>,
-    /// H1836: `--game-lang ru|en|de` (env XF_GAME_LANG; default: the game data's own language, H2305)
+    /// H1836: `--game-lang ru|en|de|fr` (env XF_GAME_LANG; default: the game data's own language, H2305)
     game_lang: Option<xf::media::lang::GameLang>,
     /// H1836: `--en-data DIR` (env XF_EN_DATA): the English data set
     en_data: Vec<PathBuf>,
@@ -186,7 +192,7 @@ fn args() -> Args {
         start: None,
         game_lang: std::env::var("XF_GAME_LANG")
             .ok()
-            .map(|v| xf::media::lang::GameLang::parse(&v).unwrap_or_else(|| die("XF_GAME_LANG ru|en|de"))),
+            .map(|v| xf::media::lang::GameLang::parse(&v).unwrap_or_else(|| die("XF_GAME_LANG ru|en|de|fr"))),
         en_data: xf::vfs::env_sources("XF_EN_DATA"),
         config: None,
         no_config: false,
@@ -246,7 +252,7 @@ fn args() -> Args {
             }
             "--saves" => a.saves = val().into(),
             "--game-lang" => {
-                let l = xf::media::lang::GameLang::parse(&val()).unwrap_or_else(|| die("--game-lang ru|en|de"));
+                let l = xf::media::lang::GameLang::parse(&val()).unwrap_or_else(|| die("--game-lang ru|en|de|fr"));
                 a.game_lang = Some(l);
                 a.cli_settings.push(("game_lang", l.code().into()));
             }
@@ -289,7 +295,7 @@ fn args() -> Args {
                 std::process::exit(0);
             }
             "-h" | "--help" => {
-                eprintln!("usage: xf [--data DIR|IMAGE ...] [--cache DIR] [--trace T.jsonl] [--load SAVE.x] [--overlay] [--hyp] [--scale fsr|linear|nearest] [--sharpness STOPS] [--subtitles on|off|auto] [--subtitles-dir DIR] [--subs en|ru|off|auto] [--saves DIR] [--game-lang ru|en|de] [--en-data DIR|IMAGE ...] [--long-timers wine|nt] [--pause-when-minimised] [--intro | --skip-intro | --new-game] [--config FILE | --no-config] [--licenses] [PATH ...]\n       xf --frames N --dump DIR [--load SAVE.x --steps S] [--intro | --skip-intro | --new-game] [--trace T.jsonl | --route fo-009] [--every MS] [--play ASSET] [--layout LAYOUT] [--port-ui] [--settings-screen]\n\nkeys: Esc menu, F1 hotspots, F2 scaling, F3 captions, F4 game language, F10 settings, F11 full screen, Space / Enter end the media\nAlt keys (the original's): Alt+0..9 volume (0 mute, 9 full), Alt+A / M / R / T / V Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality Video,\n  Alt+C captions, Alt+P pause (any key resumes), Alt+S save screen, Alt+X exit, Shift+Alt+F FPS, Shift+Alt+H hotspots, Shift+Alt+I state box");
+                eprintln!("usage: xf [--data DIR|IMAGE ...] [--cache DIR] [--trace T.jsonl] [--load SAVE.x] [--overlay] [--hyp] [--scale fsr|linear|nearest] [--sharpness STOPS] [--subtitles on|off|auto] [--subtitles-dir DIR] [--subs en|ru|off|auto] [--saves DIR] [--game-lang ru|en|de|fr] [--en-data DIR|IMAGE ...] [--long-timers wine|nt] [--pause-when-minimised] [--intro | --skip-intro | --new-game] [--config FILE | --no-config] [--licenses] [PATH ...]\n       xf --frames N --dump DIR [--load SAVE.x --steps S] [--intro | --skip-intro | --new-game] [--trace T.jsonl | --route fo-009] [--every MS] [--play ASSET] [--layout LAYOUT] [--port-ui] [--settings-screen]\n\nkeys: Esc menu, F1 hotspots, F2 scaling, F3 captions, F4 game language, F10 settings, F11 full screen, Space / Enter end the media\nAlt keys (the original's): Alt+0..9 volume (0 mute, 9 full), Alt+A / M / R / T / V Artificial Intuition / Subliminal Messages / Rollover Text / Transitions / High Quality Video,\n  Alt+C captions, Alt+P pause (any key resumes), Alt+S save screen, Alt+X exit, Shift+Alt+F FPS, Shift+Alt+H hotspots, Shift+Alt+I state box");
                 std::process::exit(0);
             }
             // macOS adds -psn_... to programs started by the Finder
@@ -485,15 +491,23 @@ fn main() {
         }
         s.subs = Some(xf::media::MediaLib::new(d));
     }
-    // H1836: the English data set and the game language
-    if !a.en_data.is_empty() {
-        let d = &xf::vfs::data_root_or_exit("xf: --en-data", &a.en_data);
-        match xf::media::lang::EnData::open(d) {
-            Ok(en) => {
-                eprintln!("xf: English data set {} ({} files, {} strings)", d.display(), en.index.len(), en.strings.len());
-                s.set_en_data(Some(std::sync::Arc::new(en)));
+    // H1836 / H2374 / H2380: the game languages — the game data's own, the English data set (`--en-data`) and every
+    // other language folder of the discs given (the EN DVD's French one), for F4 / the settings / --game-lang
+    s.data_source = xf::media::lang::source_name(
+        &if a.data_src.is_empty() { xf::vfs::sources_of(&a.data) } else { a.data_src.clone() },
+        None,
+    );
+    let en_root = (!a.en_data.is_empty()).then(|| xf::vfs::data_root_or_exit("xf: --en-data", &a.en_data));
+    for (i, (d, src)) in xf::vfs::lang_sets(&a.data, en_root.as_deref(), &mut |l| eprintln!("xf: {l}")).into_iter().enumerate() {
+        match xf::media::lang::EnData::open_from(&d, src) {
+            Ok(o) => {
+                let (n, k, label) = (o.index.len(), o.strings.len(), o.label());
+                if s.add_lang_data(std::sync::Arc::new(o)) {
+                    eprintln!("xf: game language {label}: {} ({n} files, {k} strings; F4 / --game-lang)", d.display());
+                }
             }
-            Err(e) => die(&format!("--en-data: {e}")),
+            Err(e) if i == 0 && en_root.is_some() => die(&format!("--en-data: {e}")),
+            Err(e) => eprintln!("xf: a disc's language folder: {e}"),
         }
     }
     if let Some(l) = a.game_lang {
@@ -1090,8 +1104,8 @@ fn run_window(s: &mut Session, sdl: &sdl2::Sdl, out: &mut dyn Present, a: &Args,
                     let _ = st.cur.set("fullscreen", if full { "off" } else { "on" });
                     setting_changed("fullscreen", st, s, out);
                 }
-                // F4 = the next game language (H1836: RU ↔ EN with --en-data; nothing with one language, H2305) — the
-                // settings follow (H1750)
+                // F4 = the next game language (H1836 / H2380: through every language offered; nothing with one
+                // language, H2305) — the settings follow (H1750)
                 Event::KeyDown { keycode: Some(Keycode::F4), .. } => {
                     if let Some(next) = s.next_game_lang() {
                         let _ = st.cur.set("game_lang", next);

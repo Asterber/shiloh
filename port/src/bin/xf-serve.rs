@@ -27,9 +27,15 @@
 //!   /trace.jsonl      the trace the window takes system-value conditions from (`--trace`; default traces/fo-009.jsonl
 //!                     when that file exists, else none: an empty body)
 //!   /en-index         H1837: the English data set's files (`--en-data DIR`, env XF_EN_DATA: the EN DVD's disc root /
-//!                     `English/`, or an installed English game; the game-language switch, H1836), up to three
+//!                     `English/`, or an installed English game; the game-language switch, H1836; without one, H2374:
+//!                     the data disc's other language folder, the EN DVD's `Francais/`), up to three
 //!                     sub-directory levels deep (`English/MININST/XV/…`): lines `<size>\t<relative path>`; 404 without one
 //!   /en/<path>        a file of the English data set, Range supported
+//!   /langs            H2380: the game languages' data sets — every language of every disc given (`--en-data`'s English
+//!                     and the other language folders of the `--en-data` and `--data` discs): lines `data\t<source>`
+//!                     (the game data) then `<n>\t<source>`, the source by file / folder names only (`XFILES1.mdf,
+//!                     Francais`); `/en-index` / `/en/` are set 0
+//!   /lang-index/<n>   set n's files as /en-index; /lang/<n>/<path> a file of set n, Range supported
 //!   /fonts/<name>     a .ttf / .otf font from the system font dirs (Courier New, Arial for the UI text)
 //!   /LICENSES.txt     the license notices (`xf::notices::LICENSES`)
 //! Paths are confined to their root (no `..`, no absolute paths; symlinks resolved and checked).
@@ -63,8 +69,11 @@ struct Conf {
     /// None: no trace (/trace.jsonl answers an empty body)
     trace: Option<PathBuf>,
     fonts: Vec<PathBuf>,
-    /// H1837: the English data set's root (None: not served)
-    en: Option<PathBuf>,
+    /// H1837 / H2380: the language data sets' roots and sources by names (`XFILES1.mdf, Francais`): `--en-data`'s and
+    /// every language folder of the discs given ([`xf::vfs::lang_sets`]); empty: none served
+    langs: Vec<(PathBuf, String)>,
+    /// H2380: the game data's source by names (the settings' label)
+    data_source: String,
 }
 
 /// `--saves-in` (H1733): where the save slots live.
@@ -201,11 +210,16 @@ fn main() {
     if en.is_empty() {
         en = xf::vfs::env_sources("XF_EN_DATA");
     }
-    let en = (!en.is_empty()).then(|| game_root("--en-data", &en));
-    if let Some(d) = &en {
-        eprintln!("xf-serve: English data set {} ({} files)", d.display(), deep_index(d, 3).lines().count());
+    // H1837 / H2374 / H2380: the language data sets for the game-language switch — `--en-data`'s English and every
+    // other language folder of the `--en-data` and `--data` discs (the EN DVD's French one)
+    let en_root = (!en.is_empty()).then(|| game_root("--en-data", &en));
+    let langs = xf::vfs::lang_sets(&data, en_root.as_deref(), &mut |l| eprintln!("xf-serve: {l}"));
+    for (i, (d, src)) in langs.iter().enumerate() {
+        eprintln!("xf-serve: language data set {i}: {src} — {} ({} files)", d.display(), deep_index(d, 3).lines().count());
     }
-    let conf: &'static Conf = Box::leak(Box::new(Conf { data, cache, saves, web, trace, fonts, en }));
+    let data_source = xf::media::lang::source_name(&xf::vfs::sources_of(&data), None);
+    let conf: &'static Conf =
+        Box::leak(Box::new(Conf { data, cache, saves, web, trace, fonts, langs, data_source }));
     let l = TcpListener::bind(listen).unwrap_or_else(|e| die(&format!("{listen}: {e}")));
     eprintln!("xf-serve: data {}  web {}", conf.data.display(), conf.web.display());
     eprintln!("xf-serve: open http://{listen}/");
@@ -329,14 +343,35 @@ fn route(w: &mut TcpStream, conf: &Conf, target: &str, range: Option<&str>, head
     if path == "/data-index" {
         return respond(w, "200 OK", "text/plain; charset=utf-8", data_index(&conf.data).as_bytes(), head, nocache);
     }
-    if path == "/en-index" {
-        return match &conf.en {
+    // H2380: the language data sets: `/langs` lists them (`data\t<source>` first, then `<n>\t<source>`), each one's
+    // index at `/lang-index/<n>`, its files at `/lang/<n>/<path>`; H1837: `/en-index` / `/en/` = the first one
+    if path == "/langs" {
+        let mut t = format!("data\t{}\n", conf.data_source);
+        for (i, (_, src)) in conf.langs.iter().enumerate() {
+            t += &format!("{i}\t{src}\n");
+        }
+        return respond(w, "200 OK", "text/plain; charset=utf-8", t.as_bytes(), head, nocache);
+    }
+    let lang_root = |n: &str| n.parse::<usize>().ok().and_then(|i| conf.langs.get(i)).map(|l| &l.0);
+    let (index_of, file_of) = if path == "/en-index" {
+        (Some(conf.langs.first().map(|l| &l.0)), None)
+    } else if let Some(n) = path.strip_prefix("/lang-index/") {
+        (Some(lang_root(n)), None)
+    } else if let Some(rel) = path.strip_prefix("/en/") {
+        (None, Some((conf.langs.first().map(|l| &l.0), rel)))
+    } else if let Some((n, rel)) = path.strip_prefix("/lang/").and_then(|r| r.split_once('/')) {
+        (None, Some((lang_root(n), rel)))
+    } else {
+        (None, None)
+    };
+    if let Some(d) = index_of {
+        return match d {
             Some(d) => respond(w, "200 OK", "text/plain; charset=utf-8", deep_index(d, 3).as_bytes(), head, nocache),
             None => not_found(w, head),
         };
     }
-    if let Some(rel) = path.strip_prefix("/en/") {
-        return match conf.en.as_ref().and_then(|d| confined_game(d, rel)) {
+    if let Some((d, rel)) = file_of {
+        return match d.and_then(|d| confined_game(d, rel)) {
             Some(p) => file(w, &p, range, head, &[("Cache-Control", "private, max-age=3600")]),
             None => not_found(w, head),
         };
@@ -507,6 +542,10 @@ fn confined(root: &Path, rel: &str) -> Option<PathBuf> {
 /// [`confined`] for a game data root: a mounted data set (`xf::vfs`, disc images) is checked through its layers (plain
 /// relative components only; a folder layer resolves symlinks inside itself), a real folder as any other root.
 fn confined_game(root: &Path, rel: &str) -> Option<PathBuf> {
+    // H2380: a disc's recycle bin is not game data
+    if rel.split('/').any(xf::vfs::is_junk_dir) {
+        return None;
+    }
     if xf::vfs::find(root).is_none() {
         return confined(root, rel);
     }
@@ -546,6 +585,9 @@ fn data_index(dir: &Path) -> String {
     };
     let Ok(rd) = xf::io::read_dir(dir) else { return out };
     for e in rd {
+        if e.is_dir && xf::vfs::is_junk_dir(&e.name) {
+            continue;
+        }
         if e.is_dir {
             if let Ok(sub) = xf::io::read_dir(&e.path) {
                 for f in sub.into_iter().filter(|f| !f.is_dir) {
@@ -565,6 +607,9 @@ fn deep_index(dir: &Path, depth: usize) -> String {
         let Ok(rd) = xf::io::read_dir(p) else { return };
         for e in rd {
             let r = if rel.is_empty() { e.name.clone() } else { format!("{rel}/{}", e.name) };
+            if e.is_dir && xf::vfs::is_junk_dir(&e.name) {
+                continue;
+            }
             if e.is_dir {
                 if depth > 0 {
                     walk(base, &r, &e.path, depth - 1, out);
@@ -728,7 +773,8 @@ mod tests {
             web: root.clone(),
             trace: Some(root.join("Cargo.toml")),
             fonts: vec![],
-            en,
+            langs: en.into_iter().map(|d| (d, "XFILES1.mdf".to_string())).collect(),
+            data_source: "InstalledGame".into(),
         }));
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let a = l.local_addr().unwrap();
@@ -813,9 +859,17 @@ mod tests {
         assert_eq!(req(a, "GET", "/en/English/XV/2.XMV", &[], b""), (200, b"bb".to_vec()));
         assert_eq!(req(a, "GET", "/en/English/XV/2.XMV", &[("Range", "bytes=1-")], b"").1, b"b".to_vec());
         assert_eq!(req(a, "GET", "/en/../x", &[], b"").0, 404);
+        // H2380: the same set as language data set 0 (`/langs`, `/lang-index/0`, `/lang/0/…`); sources by name only
+        assert_eq!(req(a, "GET", "/langs", &[], b""), (200, b"data\tInstalledGame\n0\tXFILES1.mdf\n".to_vec()));
+        assert_eq!(req(a, "GET", "/lang-index/0", &[], b"").1, b"1\tEnglish/MININST/XV/1.XMV\n2\tEnglish/XV/2.XMV\n".to_vec());
+        assert_eq!(req(a, "GET", "/lang/0/English/XV/2.XMV", &[], b""), (200, b"bb".to_vec()));
+        assert_eq!(req(a, "GET", "/lang-index/1", &[], b"").0, 404);
+        assert_eq!(req(a, "GET", "/lang/1/English/XV/2.XMV", &[], b"").0, 404);
+        assert_eq!(req(a, "GET", "/lang/0/../x", &[], b"").0, 404);
         let b = server(&tmp("en-none"));
         assert_eq!(req(b, "GET", "/en-index", &[], b"").0, 404);
         assert_eq!(req(b, "GET", "/en/English/XV/2.XMV", &[], b"").0, 404);
+        assert_eq!(req(b, "GET", "/langs", &[], b""), (200, b"data\tInstalledGame\n".to_vec()));
         let _ = std::fs::remove_dir_all(&d);
     }
 

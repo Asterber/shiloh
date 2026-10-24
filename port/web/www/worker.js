@@ -97,7 +97,7 @@ const mem = () => new Uint8Array(x.memory.buffer);
 const str = (p, n) => dec.decode(mem().subarray(p, p + n));
 
 function url(path) {
-  const m = /^(data|fonts|cache|en)\/(.+)$/.exec(path);
+  const m = /^(data|fonts|cache|en|lang)\/(.+)$/.exec(path);
   if (!m) return null;
   return '/' + m[1] + '/' + m[2].split('/').map(encodeURIComponent).join('/');
 }
@@ -211,14 +211,38 @@ async function fetchWasm(u) {
   return buf;
 }
 
+// H2380: the languages' data sets of xf-serve: {data: the game data's source, sets: [{n, source, index}]} from /langs
+// and /lang-index/<n>; an older server without /langs: its /en-index as one set; null when there is none
+async function langIndexes() {
+  const text = (u) => fetch(u).then((r) => (r.ok ? r.text() : '')).catch(() => '');
+  const r = await fetch('/langs').catch(() => null);
+  if (!r || !r.ok) {
+    const index = await text('/en-index');
+    return index ? { sets: [{ index }] } : null;
+  }
+  let data;
+  const sets = [];
+  for (const l of (await r.text()).split('\n')) {
+    const i = l.indexOf('\t');
+    if (i <= 0) continue;
+    const id = l.slice(0, i), source = l.slice(i + 1);
+    if (id === 'data') data = source;
+    else sets.push({ n: +id, source });
+  }
+  const idx = await Promise.all(sets.map((s) => text('/lang-index/' + s.n)));
+  sets.forEach((s, i) => { s.index = idx[i]; });
+  return { data, sets: sets.filter((s) => s.index) };
+}
+
 async function init(m) {
   hidden = !!m.hidden; // later {t:'visible'} messages update it
   pauseHidden = m.pauseHidden !== false;
   const [index, trace, enIndex, wasm] = await Promise.all([
     fetch('/data-index').then((r) => (r.ok ? r.text() : Promise.reject(new Error('/data-index: HTTP ' + r.status)))),
     fetch('/trace.jsonl').then((r) => (r.ok ? r.text() : '')).catch(() => ''),
-    // H1837: the English data set (xf-serve --en-data DIR), optional
-    fetch('/en-index').then((r) => (r.ok ? r.text() : '')).catch(() => ''),
+    // H1837 / H2380: the game languages' data sets (xf-serve /langs: every language of every disc given; each one's
+    // index from /lang-index/<n>), optional; an older server: /en-index alone
+    langIndexes(),
     fetchWasm('pkg/xf_web.wasm'),
     initSaves(m.saves),
   ]);
@@ -245,12 +269,27 @@ async function init(m) {
   audioKind = m.audioKind || 'worklet';
   x.xf_pump_target(audioTarget());
   if (m.longTimers) x.xf_long_timers(m.longTimers === 'nt' ? 1 : 0); // C191 / H1203: the bomb option
-  // H1836 / H1837: the English data set (before the settings: their game language needs it); `?game-lang=en`
+  // H1836 / H1837 / H2380: the languages' data sets (before the settings: their game language needs them);
+  // `?game-lang=en|fr|…`
   if (enIndex) {
-    const [ep, el] = putString(enIndex);
-    const has = x.xf_en_data(ep, el);
-    x.xf_free(ep, el);
-    if (has && m.gameLang === 'en') setting('game_lang', 'en');
+    let has = 0;
+    if (enIndex.data !== undefined) {
+      const [sp, sl] = putString(enIndex.data);
+      x.xf_data_source(sp, sl);
+      x.xf_free(sp, sl);
+    }
+    for (const s of enIndex.sets) {
+      const [ep, el] = putString(s.index);
+      if (s.n === undefined) {
+        has |= x.xf_en_data(ep, el);
+      } else {
+        const [sp, sl] = putString(s.source);
+        has |= x.xf_lang_data(s.n, ep, el, sp, sl);
+        x.xf_free(sp, sl);
+      }
+      x.xf_free(ep, el);
+    }
+    if (has && m.gameLang) setting('game_lang', m.gameLang);
   }
   // H1750: the page's remembered settings (the engine checks each; a bad one is logged and skipped)
   for (const l of String(m.settings || '').split('\n')) {
@@ -407,7 +446,7 @@ onmessage = (e) => {
     case 'volume': x.xf_audio(rate, m.v); break;
     case 'audio-latency': outLatency = m.s || 0; break;
     case 'long-timers': x.xf_long_timers(m.nt ? 1 : 0); break;
-    case 'game-lang': x.xf_game_lang(m.lang === 'en' ? 1 : m.lang === 'de' ? 2 : 0); break;
+    case 'game-lang': x.xf_game_lang({ en: 1, de: 2, fr: 3 }[m.lang] || 0); break;
     // H1734: the page imported slot files — the mirror and the engine's slot names read again
     case 'saves-reload':
       (saves === 'idb' ? idbLoad() : Promise.resolve())

@@ -273,6 +273,11 @@ enum IngOutcome {
 /// The text of an AssetRef as Unicode: kind 4 = the blob's cp1251 text, kind 0 = an XfilesT.dll string (H260), other
 /// kinds: None (files are read by the front-end, [`text_file_of`])
 pub fn asset_string(w: &World, asset: u32) -> Option<String> {
+    asset_string_in(w, asset, w.lang_strings.as_deref())
+}
+
+/// [`asset_string`] with `strings` as the string table laid over the HDB's own (None: the HDB's alone; H2390)
+pub fn asset_string_in(w: &World, asset: u32, strings: Option<&std::collections::HashMap<u32, String>>) -> Option<String> {
     let r = w.h.read(class::ASSET_REF, asset)?;
     match r.u32("f40") & 7 {
         4 => {
@@ -281,7 +286,7 @@ pub fn asset_string(w: &World, asset: u32) -> Option<String> {
             let len: usize = std::str::from_utf8(b.get(1..1 + n)?).ok()?.parse().ok()?;
             Some(cp1251(b.get(1 + n..1 + n + len)?))
         }
-        0 => super::super::devices::asset_text(w, asset),
+        0 => super::super::devices::asset_text_in(w, asset, strings),
         _ => None,
     }
 }
@@ -1423,6 +1428,16 @@ impl World<'_> {
     /// H570 / H578: the login fields' texts for the front-end: (text item, text, password masked)
     pub fn pc_login_texts(&self) -> [(u32, String); 2] {
         [(0xc67b, self.px.user.clone()), (0xc68c, "*".repeat(self.px.pass.chars().count()))]
+    }
+
+    /// H650 / H2390: SetLanguage's write — the string variable `var` gets the text of `asset` from
+    /// [`World::layout_strings`] (the language of the pictures drawn). False: text or variable unknown.
+    pub fn set_language_text(&mut self, asset: u32, var: u32) -> bool {
+        let strings = self.layout_strings.clone();
+        match asset_string_in(self, asset, strings.as_deref()) {
+            Some(t) => self.vars.set_text(var, &to_cp1251(&t)),
+            None => false,
+        }
     }
 }
 

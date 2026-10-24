@@ -160,6 +160,56 @@ fn one_language_per_disc() {
     assert_eq!(ds.read(Path::new("XV/2.xmv")).unwrap(), b"en-2");
     assert_eq!(ds.skipped.len(), 1);
     assert!(ds.skipped[0].ends_with("Francais"));
+    // H2371 / H2372: the French folder asked for by language; the folder left out named by its language
+    assert_eq!(ds.skipped_langs(), vec!["fr"]);
+    let fr = DataSet::open_lang(&[d.join("dvd.mdf")], Some("fr")).unwrap();
+    assert_eq!(fr.read(Path::new("XFiles.hdb")).unwrap(), b"hdb-fr");
+    assert_eq!(fr.read(Path::new("XV/1.xmv")).unwrap(), b"fr");
+    assert_eq!(fr.skipped_langs(), vec!["en"]);
+    // a language the disc lacks: the English folder, as without one
+    let de = DataSet::open_lang(&[d.join("dvd.mdf")], Some("de")).unwrap();
+    assert_eq!(de.read(Path::new("XFiles.hdb")).unwrap(), b"hdb-en");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// H2370: a disc's language folder copied (or mounted) alone — `--data …/Francais` — holds the database only in its
+/// MININST: its install folders are layered (MININST, MEDINST, the folder), not the folder read as an installed game.
+#[test]
+fn language_folder_alone() {
+    let d = tmp("frdir");
+    let fr = d.join("Francais");
+    for (p, b) in [
+        ("MININST/XFILES.HDB", "hdb-fr"),
+        ("MININST/XFILES.GAM", "gam-fr"),
+        ("MININST/XV/1.XMV", "mini"),
+        ("MEDINST/NAVM.NMV", "navm"),
+        ("MEDINST/XV/2.XMV", "med"),
+        ("XV/1.XMV", "root-1"),
+        ("XV/3.XMV", "root-3"),
+        ("X7.PFF", "x7"),
+        ("NAV1.NMV", "nav-1"),
+    ] {
+        std::fs::create_dir_all(fr.join(p).parent().unwrap()).unwrap();
+        std::fs::write(fr.join(p), b).unwrap();
+    }
+    assert!(xf::vfs::needs_vfs(std::slice::from_ref(&fr)));
+    let ds = DataSet::open(std::slice::from_ref(&fr)).unwrap();
+    assert_eq!(ds.read(Path::new("XFiles.hdb")).unwrap(), b"hdb-fr");
+    assert_eq!(ds.read(Path::new("xv/1.xmv")).unwrap(), b"mini");
+    assert_eq!(ds.read(Path::new("xv/2.xmv")).unwrap(), b"med");
+    assert_eq!(ds.read(Path::new("xv/3.xmv")).unwrap(), b"root-3");
+    assert_eq!(ds.read(Path::new("NAVM.NMV")).unwrap(), b"navm");
+    assert!(ds.check().iter().all(|(fatal, _)| !fatal), "{:?}", ds.check());
+    // the three folders given one by one (the workaround of issue #3): the same files
+    let ds3 = DataSet::open(&[fr.join("MININST"), fr.join("MEDINST"), fr.clone()]).unwrap();
+    assert_eq!(ds3.read(Path::new("XFiles.hdb")).unwrap(), b"hdb-fr");
+    assert_eq!(ds3.read(Path::new("xv/2.xmv")).unwrap(), b"med");
+    // an installed game is still read as it is
+    let inst = d.join("inst");
+    std::fs::create_dir_all(inst.join("XV")).unwrap();
+    std::fs::write(inst.join("XFiles.hdb"), b"h").unwrap();
+    std::fs::write(inst.join("XV/1.xmv"), b"m").unwrap();
+    assert!(!xf::vfs::needs_vfs(std::slice::from_ref(&inst)));
     let _ = std::fs::remove_dir_all(&d);
 }
 

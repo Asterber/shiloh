@@ -715,7 +715,42 @@ pub unsafe extern "C" fn xf_en_data(index: *const u8, index_len: usize) -> u32 {
     }
 }
 
-/// H1836: the game language, 0 = RU, 1 = EN (the settings' "game language"). Returns 1 when set, 0 if not (EN without
+/// H2380: language data set `n` of xf-serve (`/langs`: every language of every disc given) — `index` = its
+/// `/lang-index/<n>` (the files are fetched from /lang/<n>/…), `source` = where it comes from by names (the settings'
+/// label). Laid over the game data unless of its language or of one laid over already. Returns 1 when taken.
+#[no_mangle]
+pub unsafe extern "C" fn xf_lang_data(n: u32, index: *const u8, index_len: usize, source: *const u8, source_len: usize) -> u32 {
+    let (index, source) = (str_arg(index, index_len), str_arg(source, source_len).to_string());
+    let Some(fs) = WEB_FS.get() else { return 0 };
+    if index.is_empty() {
+        return 0;
+    }
+    let root = PathBuf::from(format!("lang/{n}"));
+    fs.add(&root, index);
+    match xf::media::lang::EnData::open_from(&root, source) {
+        Ok(o) => {
+            let msg = format!("game language {}: {} files, {} strings (F4)", o.label(), o.index.len(), o.strings.len());
+            let took = with(|st| st.s.add_lang_data(std::sync::Arc::new(o))).unwrap_or(false);
+            if took {
+                log(&msg, 0);
+            }
+            took as u32
+        }
+        Err(e) => {
+            log(&format!("language data set {n}: {e}"), 1);
+            0
+        }
+    }
+}
+
+/// H2380: where the game data comes from, by names (xf-serve `/langs`' `data` line; the settings' label).
+#[no_mangle]
+pub unsafe extern "C" fn xf_data_source(p: *const u8, n: usize) {
+    let s = str_arg(p, n).to_string();
+    with(|st| st.s.data_source = s);
+}
+
+/// H1836: the game language, 0 = RU, 1 = EN, 2 = DE, 3 = FR (H2374) (the settings' "game language"). Returns 1 when set, 0 if not (EN without
 /// the English data set).
 #[no_mangle]
 pub extern "C" fn xf_game_lang(lang: u32) -> u32 {
@@ -723,6 +758,7 @@ pub extern "C" fn xf_game_lang(lang: u32) -> u32 {
     let l = match lang {
         1 => GameLang::En,
         2 => GameLang::De,
+        3 => GameLang::Fr,
         _ => GameLang::Ru,
     };
     let mut ok = 0;
@@ -835,6 +871,12 @@ pub extern "C" fn xf_settings() -> *const u8 {
         st.text = cur.to_text() + &st.text;
         for (k, v) in xf::front::settings::choices(&st.s, &st.packs) {
             st.text += &format!("choices.{k} = {}\n", v.join(","));
+        }
+        // H2380: `label.<key>.<value> = <text>` for the values the data names (a game language's edition and source)
+        for (k, v) in xf::front::settings::choice_labels(&st.s) {
+            for (val, t) in v {
+                st.text += &format!("label.{k}.{val} = {}\n", t.replace('\n', " "));
+            }
         }
         st.text.as_ptr()
     })

@@ -14,7 +14,8 @@
 //! PICT (Apple QuickDraw, public spec "Imaging With QuickDraw" App. A): `u16 size, rect picFrame` (always
 //! `0,0,h,w` here — no screen position), `0x0011 0x02ff` version 2, `0x0c00` header (24 bytes), then opcodes. The
 //! installed files use: 0x001e DefHilite, 0x0001 Clip, 0x00a1 LongComment (Photoshop `8BIM`), 0x009a DirectBitsRect
-//! (32-bit, packType 4 = per-row PackBits of planar A?RGB), 0x0098 PackBitsRect (8-bit indexed + colour table),
+//! (32-bit, packType 4 = per-row PackBits of planar A?RGB), 0x0098 PackBitsRect (8-bit indexed + colour table;
+//! 1-bit BitMap: the QuickTime logo after a band, H2400),
 //! 0x8200 CompressedQuickTime ('jpeg' image description + Photo-JPEG data; the QuickTime fallback drawing after it is
 //! ignored), 0x00ff end. Survey of x.pff (727 entries): 418 QuickTime JPEG, 301 DirectBitsRect, 3 PackBitsRect,
 //! 4 with an unhandled pen opcode before any image (0x0009) — those are reported as errors.
@@ -92,6 +93,31 @@ impl Pff {
 
     pub fn entry(&self, i: usize) -> Option<&[u8]> {
         self.ranges.get(i).map(|&(s, e)| &self.data[s..e])
+    }
+
+    /// H2390: a PFF file's entry byte ranges from its header alone (two ranged reads, the entries not read); None when
+    /// it is not a PFF file
+    pub fn ranges_of(path: &Path) -> Option<Vec<(u64, u64)>> {
+        let h = crate::io::read_range(path, 0, 12).ok()?;
+        if h.get(..4) != Some(b"PFF ") {
+            return None;
+        }
+        let (n, hs) = (le32(&h, 4)? as usize, le32(&h, 8)? as usize);
+        if hs != 12 + 8 * n {
+            return None;
+        }
+        let t = crate::io::read_range(path, 12, 4 * n).ok()?;
+        let mut v = Vec::with_capacity(n);
+        let mut start = hs as u64;
+        for i in 0..n {
+            let end = le32(&t, 4 * i)? as u64;
+            if end < start {
+                return None;
+            }
+            v.push((start, end));
+            start = end;
+        }
+        Some(v)
     }
 
     /// H330: the per-entry frame durations (ms) of the header's second table
@@ -220,8 +246,8 @@ pub fn decode(p: &[u8]) -> Result<Picture, String> {
         }
     };
     let mut o = 14;
-    // set once a 0x8200 band is drawn: whatever follows is fallback drawing for systems without QuickTime (the 8BIM
-    // pictures add a dithered 8-bit PackBitsRect copy, truncated in x.pff 283, 284, …) — an error there ends decoding
+    // set once a 0x8200 band is drawn: whatever follows is fallback drawing for systems without QuickTime (text, or a
+    // 1-bit QuickTime logo BitMap, H2400), possibly followed by the next band — an error there ends decoding
     let mut qt = false;
     let r = (|| -> Result<(), String> { loop {
         o = (o + 1) & !1; // opcodes are word aligned in v2
@@ -297,6 +323,39 @@ pub fn decode(p: &[u8]) -> Result<Picture, String> {
                             }
                         }
                     }
+                }
+            }
+            // a 1-bit BitMap (rowBytes without the PixMap flag): bounds, srcRect, dstRect, mode, [maskRgn], rows — no
+            // PixMap record or colour table. H2400: the QuickTime logo of a band's fallback (RU / EN x.pff: 25 / 26
+            // entries, the French x.pff 26, e.g. its e-mail background 530); read as a PixMap it ran past the entry and
+            // ended decoding, so the later bands stayed black. After a QuickTime band it is skipped, else drawn black
+            // on white
+            0x0098 | 0x0099 if be16(p, o)? & 0x8000 == 0 => {
+                let rb = be16(p, o)? as usize & 0x3fff;
+                let (top, left, bottom, right) =
+                    (be16(p, o + 2)? as i16 as i32, be16(p, o + 4)? as i16 as i32, be16(p, o + 6)? as i16 as i32, be16(p, o + 8)? as i16 as i32);
+                let pm = PixMap {
+                    row_bytes: rb,
+                    top,
+                    left,
+                    w: (right - left).max(0) as usize,
+                    h: (bottom - top).max(0) as usize,
+                    pack_type: 0,
+                    pixel_size: 1,
+                    cmp_count: 1,
+                };
+                o += 2 + 8 + 18;
+                if op == 0x0099 {
+                    o += region_size(p, o)?;
+                }
+                let (rws, end) = rows(p, o, &pm, pm.row_bytes)?;
+                o = end;
+                if !qt {
+                    let px = |x: usize, y: usize| -> [u8; 3] {
+                        let b = rws[y].get(x / 8).copied().unwrap_or(0) >> (7 - x % 8) & 1;
+                        if b == 1 { [0, 0, 0] } else { [255, 255, 255] }
+                    };
+                    blit(&mut pic, pm.left, pm.top, pm.w, pm.h, &px);
                 }
             }
             0x0098 | 0x0099 => {

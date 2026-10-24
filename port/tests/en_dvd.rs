@@ -138,7 +138,7 @@ fn en_only_languages() {
     assert!(s.set_game_lang("en").is_ok() && s.r.w.lang_strings.is_none());
     assert_eq!(s.sub_langs(&["en", "ru"]), vec!["auto"]);
     s.set_en_data(Some(std::sync::Arc::new(xf::media::lang::EnData::default())));
-    assert!(s.en_data.is_none() && s.game_langs() == vec!["en"]);
+    assert!(s.overlays.is_empty() && s.game_langs() == vec!["en"]);
     let mut set = xf::front::settings::Settings::default();
     set.set("subs", "ru").unwrap();
     set.fit(&s, &["en", "ru"], false);

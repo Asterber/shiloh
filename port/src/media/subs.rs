@@ -177,7 +177,10 @@ impl Pack {
         match mode {
             "auto" if data_lang == super::lang::GameLang::En => Ok(None),
             // H2323: over German data auto = the English pack when there is one
-            "auto" if data_lang == super::lang::GameLang::De => Ok(Pack::load(&pack_path(cache, "en")).ok()),
+            // H2375: French data the same (its movies keep only English sound-effect captions)
+            "auto" if matches!(data_lang, super::lang::GameLang::De | super::lang::GameLang::Fr) => {
+                Ok(Pack::load(&pack_path(cache, "en")).ok())
+            }
             "off" => Ok(None),
             "auto" => Ok(AUTO_ORDER.iter().find_map(|l| Pack::load(&pack_path(cache, l)).ok())),
             l if is_lang(l) => Pack::load(&pack_path(cache, l)).map(Some),

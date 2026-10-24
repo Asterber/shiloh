@@ -238,6 +238,24 @@ impl Build {
     }
 }
 
+/// H2380: the build of an exe by its PE header alone (`MZ`, the PE offset, the PE timestamp of the file's first bytes)
+/// — a label for a language's data set, not a check: [`identify`] decides what the tables are read from.
+pub fn identify_head(head: &[u8]) -> Option<Build> {
+    if head.get(..2) != Some(b"MZ".as_slice()) {
+        return None;
+    }
+    let pe = u32le(head, 0x3c)? as usize;
+    if head.get(pe..pe + 4) != Some(b"PE\0\0".as_slice()) {
+        return None;
+    }
+    match u32le(head, pe + 8)? {
+        RU100_TIMESTAMP => Some(Build::Ru100),
+        ENDVD_TIMESTAMP => Some(Build::EnDvd),
+        DE10019_TIMESTAMP => Some(Build::De10019),
+        _ => None,
+    }
+}
+
 pub fn identify(d: &[u8]) -> Result<Build, String> {
     let img = Image::new(d).ok_or("not a PE32 image")?;
     if d.len() == RU100_SIZE && img.timestamp == RU100_TIMESTAMP && fnv1a(d) == RU100_FNV {

@@ -70,6 +70,9 @@ impl MediaLib {
         };
         if let Ok(rd) = crate::io::read_dir(&dir) {
             for e in rd {
+                if e.is_dir && crate::vfs::is_junk_dir(&e.name) {
+                    continue; // H2380: a disc's recycle bin (`Francais/RECYCLED/`)
+                }
                 if e.is_dir {
                     if let Ok(sub) = crate::io::read_dir(&e.path) {
                         for f in sub {
